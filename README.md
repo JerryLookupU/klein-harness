@@ -2,6 +2,15 @@
 
 `harness-architect` 是一套给项目建立和维护 `.harness/` 协作系统的 skill 与模板仓库。
 
+它当前主要面向 `Codex` 工作流设计，默认优先考虑：
+
+- `codex exec`
+- `codex exec resume`
+- `gpt-5.4` 编排
+- `gpt-5.3-codex` 执行
+
+同时它也保留了对 Claude / 其他 agent 工作流的兼容思路，但仓库里的命令、session 路由、prompt 模板和 operator CLI，默认都是按 `Codex-first` 来组织的。
+
 它面向这类场景：
 
 - 你手里有一份 PRD，想把它稳定落成项目
@@ -220,3 +229,7 @@ session-init
 - 可审计
 - 可恢复
 - 可封版
+
+## License
+
+This repository is licensed under the MIT License. See [LICENSE](./LICENSE).
