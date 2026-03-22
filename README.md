@@ -2,6 +2,10 @@
 
 A repo-local closed-loop `.harness` runtime for Codex-first agent work.
 
+> 闭环系统 / 自指结构 / AI 执行网络 / 工程化控制
+>
+> Closed-loop system / Self-referential structure / AI execution network / Engineered control
+
 ![Klein surface visualization](docs/klein-surface-hero.png)
 
 Klein-Harness turns a repository into a re-entrant control surface:
