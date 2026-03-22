@@ -22,11 +22,11 @@ else
 fi
 
 CODEX_BASE="${CODEX_HOME:-$HOME/.codex}"
-SKILL_DIR="$CODEX_BASE/skills/harness-architect"
+SKILL_DIR="$CODEX_BASE/skills/klein-harness"
 INSTALL_FULL_SH="$SKILL_DIR/examples/harness-install-full.example.sh"
 
 if [[ ! -d "$SKILL_DIR" ]]; then
-  echo "harness-architect skill is not installed: $SKILL_DIR" >&2
+  echo "klein-harness skill is not installed: $SKILL_DIR" >&2
   echo "run: ./install.sh --force" >&2
   exit 1
 fi

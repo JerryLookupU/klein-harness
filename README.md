@@ -3,7 +3,7 @@
 ## 中文
 
 `Klein-Harness` 是一套用于建立和维护 `.harness/` 协作系统的 skill 与模板仓库。
-当前仓库路径和技能目录仍保留 `harness-architect` 命名，以维持现有 CLI、安装路径和引用兼容。
+当前仓库路径和技能目录已统一为 `klein-harness`。
 
 当前版本主要面向 `Codex` 工作流，默认采用以下模型与命令约定：
 
@@ -29,11 +29,11 @@
 
 本仓库主要包含三类内容：
 
-- `skills/harness-architect/SKILL.md`
+- `skills/klein-harness/SKILL.md`
   主说明书，定义模式、gate、角色、默认执行链与产物约束
-- `skills/harness-architect/references/`
+- `skills/klein-harness/references/`
   协议、路由、worktree、prompt、query、schema 等参考文档
-- `skills/harness-architect/examples/`
+- `skills/klein-harness/examples/`
   可直接复用的模板、脚本、JSON、Markdown 与 prompt 示例
 
 ### 解决的问题
@@ -94,7 +94,7 @@ source ~/.zshrc
 
 ```bash
 git clone <this-repo>
-cd harness-architect
+cd klein-harness
 chmod +x install.sh
 ./install.sh
 ```
@@ -211,7 +211,7 @@ OpenClaw / shell / cron / future callers
 推荐试用流程：
 
 1. 运行 `./install.sh`
-2. 阅读 [SKILL.md](./skills/harness-architect/SKILL.md)
+2. 阅读 [SKILL.md](./skills/klein-harness/SKILL.md)
 3. 选择一个测试项目目录
 4. 使用安装脚本将最小 CLI 与脚本写入该项目的 `.harness/`
 5. 运行 `query` 与 `dashboard`
@@ -220,31 +220,31 @@ OpenClaw / shell / cron / future callers
 安装最小工具集：
 
 ```bash
-./skills/harness-architect/examples/harness-install-tools.example.sh <PROJECT_ROOT>
+./skills/klein-harness/examples/harness-install-tools.example.sh <PROJECT_ROOT>
 ```
 
 进入新项目并打印推荐的 Codex bootstrap 指令：
 
 ```bash
-./skills/harness-architect/examples/harness-kickoff.example.sh <PROJECT_ROOT> "建立一个简单的番茄闹钟 app" "React + Vite"
+./skills/klein-harness/examples/harness-kickoff.example.sh <PROJECT_ROOT> "建立一个简单的番茄闹钟 app" "React + Vite"
 ```
 
 安装完整 operator/tooling 面：
 
 ```bash
-./skills/harness-architect/examples/harness-install-full.example.sh <PROJECT_ROOT>
+./skills/klein-harness/examples/harness-install-full.example.sh <PROJECT_ROOT>
 ```
 
 发布前 smoke test：
 
 ```bash
-bash ./skills/harness-architect/examples/harness-release-smoke.example.sh
+bash ./skills/klein-harness/examples/harness-release-smoke.example.sh
 ```
 
 进入新项目并打印完整 bootstrap 指令：
 
 ```bash
-./skills/harness-architect/examples/harness-full-kickoff.example.sh <PROJECT_ROOT> "建立一个简单的番茄闹钟 app" "React + Vite"
+./skills/klein-harness/examples/harness-full-kickoff.example.sh <PROJECT_ROOT> "建立一个简单的番茄闹钟 app" "React + Vite"
 ```
 
 刷新热状态：
@@ -426,28 +426,28 @@ session-init
 
 优先阅读：
 
-- [SKILL.md](./skills/harness-architect/SKILL.md)
-- [TRY-IT.md](./skills/harness-architect/TRY-IT.md)
-- [FEEDBACK.md](./skills/harness-architect/FEEDBACK.md)
-- [references/schema-contracts.md](./skills/harness-architect/references/schema-contracts.md)
-- [references/openclaw-dispatch.md](./skills/harness-architect/references/openclaw-dispatch.md)
-- [references/model-routing.md](./skills/harness-architect/references/model-routing.md)
+- [SKILL.md](./skills/klein-harness/SKILL.md)
+- [TRY-IT.md](./skills/klein-harness/TRY-IT.md)
+- [FEEDBACK.md](./skills/klein-harness/FEEDBACK.md)
+- [references/schema-contracts.md](./skills/klein-harness/references/schema-contracts.md)
+- [references/openclaw-dispatch.md](./skills/klein-harness/references/openclaw-dispatch.md)
+- [references/model-routing.md](./skills/klein-harness/references/model-routing.md)
 
 阅读顺序建议：
 
-1. `skills/harness-architect/SKILL.md`
-2. `skills/harness-architect/references/schema-contracts.md`
-3. `skills/harness-architect/references/openclaw-dispatch.md`
-4. `skills/harness-architect/references/model-routing.md`
-5. `skills/harness-architect/references/git-worktree-playbook.md`
-6. `skills/harness-architect/examples/`
+1. `skills/klein-harness/SKILL.md`
+2. `skills/klein-harness/references/schema-contracts.md`
+3. `skills/klein-harness/references/openclaw-dispatch.md`
+4. `skills/klein-harness/references/model-routing.md`
+5. `skills/klein-harness/references/git-worktree-playbook.md`
+6. `skills/klein-harness/examples/`
 
 ### 试用与反馈
 
 建议在试用前先阅读：
 
-- [TRY-IT.md](./skills/harness-architect/TRY-IT.md)
-- [FEEDBACK.md](./skills/harness-architect/FEEDBACK.md)
+- [TRY-IT.md](./skills/klein-harness/TRY-IT.md)
+- [FEEDBACK.md](./skills/klein-harness/FEEDBACK.md)
 
 建议重点反馈：
 
@@ -471,7 +471,7 @@ session-init
 ## English
 
 `Klein-Harness` is a skill and template repository for building and maintaining a `.harness/` coordination system.
-The repository path and installed skill directory still keep the `harness-architect` name for compatibility with existing commands and references.
+The repository path and installed skill directory are now consistently named `klein-harness`.
 
 The current version is primarily designed for `Codex` workflows, with the following default model and command assumptions:
 
@@ -497,11 +497,11 @@ Typical use cases:
 
 This repository is organized around three main parts:
 
-- `skills/harness-architect/SKILL.md`
+- `skills/klein-harness/SKILL.md`
   the main specification for modes, gates, roles, execution flow, and output contracts
-- `skills/harness-architect/references/`
+- `skills/klein-harness/references/`
   protocol, routing, worktree, prompt, query, and schema references
-- `skills/harness-architect/examples/`
+- `skills/klein-harness/examples/`
   reusable templates, scripts, JSON files, Markdown files, and prompt examples
 
 ### Problems It Addresses
@@ -546,7 +546,7 @@ If you mainly want the fastest deployment path, use the four steps below.
 
 ```bash
 git clone <this-repo>
-cd harness-architect
+cd klein-harness
 chmod +x install.sh
 ./install.sh
 ```
@@ -646,7 +646,7 @@ For the detailed runtime contract, see:
 Recommended trial flow:
 
 1. run `./install.sh`
-2. read [SKILL.md](./skills/harness-architect/SKILL.md)
+2. read [SKILL.md](./skills/klein-harness/SKILL.md)
 3. choose a test project directory
 4. install the minimal CLI and scripts into that project's `.harness/`
 5. run `query` and `dashboard`
@@ -655,7 +655,7 @@ Recommended trial flow:
 Install the minimal toolset:
 
 ```bash
-./skills/harness-architect/examples/harness-install-tools.example.sh <PROJECT_ROOT>
+./skills/klein-harness/examples/harness-install-tools.example.sh <PROJECT_ROOT>
 ```
 
 Refresh hot state:
@@ -734,7 +734,7 @@ python3 .harness/scripts/refresh-state.py .
 Release smoke:
 
 ```bash
-bash ./skills/harness-architect/examples/harness-release-smoke.example.sh
+bash ./skills/klein-harness/examples/harness-release-smoke.example.sh
 ```
 
 ### Common CLI
@@ -818,28 +818,28 @@ session-init
 
 Suggested starting points:
 
-- [SKILL.md](./skills/harness-architect/SKILL.md)
-- [TRY-IT.md](./skills/harness-architect/TRY-IT.md)
-- [FEEDBACK.md](./skills/harness-architect/FEEDBACK.md)
-- [references/schema-contracts.md](./skills/harness-architect/references/schema-contracts.md)
-- [references/openclaw-dispatch.md](./skills/harness-architect/references/openclaw-dispatch.md)
-- [references/model-routing.md](./skills/harness-architect/references/model-routing.md)
+- [SKILL.md](./skills/klein-harness/SKILL.md)
+- [TRY-IT.md](./skills/klein-harness/TRY-IT.md)
+- [FEEDBACK.md](./skills/klein-harness/FEEDBACK.md)
+- [references/schema-contracts.md](./skills/klein-harness/references/schema-contracts.md)
+- [references/openclaw-dispatch.md](./skills/klein-harness/references/openclaw-dispatch.md)
+- [references/model-routing.md](./skills/klein-harness/references/model-routing.md)
 
 Suggested reading order:
 
-1. `skills/harness-architect/SKILL.md`
-2. `skills/harness-architect/references/schema-contracts.md`
-3. `skills/harness-architect/references/openclaw-dispatch.md`
-4. `skills/harness-architect/references/model-routing.md`
-5. `skills/harness-architect/references/git-worktree-playbook.md`
-6. `skills/harness-architect/examples/`
+1. `skills/klein-harness/SKILL.md`
+2. `skills/klein-harness/references/schema-contracts.md`
+3. `skills/klein-harness/references/openclaw-dispatch.md`
+4. `skills/klein-harness/references/model-routing.md`
+5. `skills/klein-harness/references/git-worktree-playbook.md`
+6. `skills/klein-harness/examples/`
 
 ### Trial and Feedback
 
 Before running a trial, review:
 
-- [TRY-IT.md](./skills/harness-architect/TRY-IT.md)
-- [FEEDBACK.md](./skills/harness-architect/FEEDBACK.md)
+- [TRY-IT.md](./skills/klein-harness/TRY-IT.md)
+- [FEEDBACK.md](./skills/klein-harness/FEEDBACK.md)
 
 Useful feedback areas include:
 

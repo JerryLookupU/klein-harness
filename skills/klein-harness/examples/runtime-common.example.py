@@ -936,7 +936,7 @@ def build_feedback_summary(entries):
 
     return {
         "schemaVersion": SCHEMA_VERSION,
-        "generator": "harness-architect",
+        "generator": "klein-harness",
         "generatedAt": now_iso(),
         "feedbackLogPath": ".harness/feedback-log.jsonl",
         "feedbackEventCount": len(ordered),
@@ -1005,7 +1005,7 @@ def build_request_summary(index: dict, task_map: dict, task_pool: dict | None = 
 
     return {
         "schemaVersion": SCHEMA_VERSION,
-        "generator": "harness-architect",
+        "generator": "klein-harness",
         "generatedAt": now_iso(),
         "requestCounts": counts,
         "totalRequests": len(requests),
@@ -1146,7 +1146,7 @@ def build_lineage_index(lineage_entries: list[dict], task_pool: dict | None, tas
 
     return {
         "schemaVersion": SCHEMA_VERSION,
-        "generator": "harness-architect",
+        "generator": "klein-harness",
         "generatedAt": now_iso(),
         "eventCount": len(lineage_entries),
         "lastSeq": lineage_entries[-1].get("seq") if lineage_entries else 0,

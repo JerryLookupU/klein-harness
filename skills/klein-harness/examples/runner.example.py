@@ -134,7 +134,7 @@ def call_route_session(script_path: Path, project_root: Path, task_id: str) -> d
 
 def prompt_lines(task: dict, route_decision: dict, project_root: str):
     lines = [
-        "使用 harness-architect skill。",
+        "使用 klein-harness skill。",
         f"当前项目目录: {project_root}",
         f"当前任务: {task.get('taskId')}",
         f"title: {task.get('title', '-')}",

@@ -1,6 +1,6 @@
 {
   "schemaVersion": "1.0",
-  "generator": "harness-architect",
+  "generator": "klein-harness",
   "generatedAt": "2026-03-21T21:10:00+08:00",
   "mode": "agent-entry",
   "planningStage": "execution-ready",

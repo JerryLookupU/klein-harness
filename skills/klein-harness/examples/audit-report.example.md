@@ -1,5 +1,5 @@
 ---
-generator: harness-architect
+generator: klein-harness
 generatedAt: "2026-03-19T14:30:00+08:00"
 project: openclaw-brain-plugin
 ---

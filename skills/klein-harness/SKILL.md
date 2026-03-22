@@ -1,5 +1,5 @@
 ---
-name: harness-architect
+name: klein-harness
 description: "为项目构建 .harness/ agent 协作系统。重点不是把文件铺满，而是让进入项目的 Claude/Codex agent 能持续判断角色、认领任务、回退错误、交接工作，并把代码稳定写出来。"
 allowed-tools: ["Bash", "Read", "Write", "Edit", "Glob", "Grep"]
 ---

@@ -2,7 +2,7 @@
 
 ## v0.1.0 - 2026-03-22
 
-First publishable release of the `harness-architect` Codex-first `.harness/` collaboration toolkit.
+First publishable release of the `klein-harness` Codex-first `.harness/` collaboration toolkit.
 
 ### Highlights
 
@@ -20,7 +20,7 @@ First publishable release of the `harness-architect` Codex-first `.harness/` col
 - Updated worker and orchestrator prompt examples to consume recent high-severity failures instead of scanning full history
 - Added runner support for `--dispatch-mode print` so release validation can run without `tmux`
 - Added release smoke script:
-  - `skills/harness-architect/examples/harness-release-smoke.example.sh`
+  - `skills/klein-harness/examples/harness-release-smoke.example.sh`
 - Updated install flow to initialize:
   - `feedback-log.jsonl`
   - `state/feedback-summary.json`
@@ -32,6 +32,6 @@ First publishable release of the `harness-architect` Codex-first `.harness/` col
 Validated with:
 
 ```bash
-python3 -m py_compile skills/harness-architect/examples/*.py
-bash ./skills/harness-architect/examples/harness-release-smoke.example.sh
+python3 -m py_compile skills/klein-harness/examples/*.py
+bash ./skills/klein-harness/examples/harness-release-smoke.example.sh
 ```

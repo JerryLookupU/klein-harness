@@ -31,7 +31,7 @@ chmod +x "$BIN_DIR/harness-query" "$BIN_DIR/harness-dashboard"
 cat > "$MANIFEST" <<'JSON'
 {
   "schemaVersion": "1.0",
-  "generator": "harness-architect",
+  "generator": "klein-harness",
   "generatedAt": "INSTALL_TIME",
   "installed": [
     {

@@ -32,11 +32,11 @@ Full harness operator toolset installed into:
 
 Full flow trigger:
   Open Codex in $PROJECT_ROOT and use a prompt that explicitly says:
-  "使用 harness-architect skill，并进入 bootstrap 模式。"
+  "使用 klein-harness skill，并进入 bootstrap 模式。"
 
 Suggested full bootstrap prompt for Codex:
 
-使用 harness-architect skill。
+使用 klein-harness skill。
 当前项目目录: $PROJECT_ROOT
 项目名: $REPO_NAME
 目标: $PROJECT_GOAL

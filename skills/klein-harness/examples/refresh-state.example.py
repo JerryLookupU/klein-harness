@@ -68,7 +68,7 @@ def main():
 
     current_state = {
         "schemaVersion": "1.0",
-        "generator": "harness-architect",
+        "generator": "klein-harness",
         "generatedAt": now_iso(),
         "mode": progress.get("mode"),
         "planningStage": progress.get("planningStage"),
@@ -103,7 +103,7 @@ def main():
 
     runtime_state = {
         "schemaVersion": "1.0",
-        "generator": "harness-architect",
+        "generator": "klein-harness",
         "generatedAt": now_iso(),
         "orchestrationSessionId": session_registry.get("orchestrationSessionId"),
         "activeTaskCount": len(active),
@@ -177,7 +177,7 @@ def main():
 
     blueprint_index = {
         "schemaVersion": "1.0",
-        "generator": "harness-architect",
+        "generator": "klein-harness",
         "generatedAt": now_iso(),
         "specRevision": spec.get("specRevision"),
         "planningStage": spec.get("planningStage"),

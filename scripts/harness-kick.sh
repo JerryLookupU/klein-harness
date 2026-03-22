@@ -247,7 +247,7 @@ if meta_path.exists():
     data = json.loads(meta_path.read_text())
 
 data.setdefault("schemaVersion", "1.0")
-data.setdefault("generator", "harness-architect")
+data.setdefault("generator", "klein-harness")
 data.setdefault("requestQueueEnabled", True)
 data["generatedAt"] = timestamp
 data["projectRoot"] = project_root
@@ -344,7 +344,7 @@ if meta_path.exists():
     data = json.loads(meta_path.read_text())
 
 data.setdefault("schemaVersion", "1.0")
-data.setdefault("generator", "harness-architect")
+data.setdefault("generator", "klein-harness")
 data.setdefault("requestQueueEnabled", True)
 data["generatedAt"] = timestamp
 data["projectRoot"] = project_root
@@ -434,7 +434,7 @@ if [[ ${#CONTEXT_INPUTS[@]} -gt 0 ]]; then
 fi
 
 CODEX_BASE="${CODEX_HOME:-$HOME/.codex}"
-SKILL_DIR="$CODEX_BASE/skills/harness-architect"
+SKILL_DIR="$CODEX_BASE/skills/klein-harness"
 EXAMPLES_DIR="$SKILL_DIR/examples"
 INSTALL_FULL_SH="$EXAMPLES_DIR/harness-install-full.example.sh"
 PROMPT_PATH="$PROJECT_ROOT/.harness/bootstrap-request.md"
@@ -447,7 +447,7 @@ RUNNER_DAEMON_STDOUT_PATH="$PROJECT_ROOT/.harness/state/runner-daemon.log"
 PROJECT_META_PATH="$PROJECT_ROOT/.harness/project-meta.json"
 
 if [[ ! -d "$SKILL_DIR" ]]; then
-  echo "harness-architect skill is not installed: $SKILL_DIR" >&2
+  echo "klein-harness skill is not installed: $SKILL_DIR" >&2
   echo "run: ./install.sh --force" >&2
   exit 1
 fi
@@ -481,7 +481,7 @@ if [[ ${#ADD_DIR_ARGS[@]} -gt 0 ]]; then
 fi
 
 cat > "$PROMPT_PATH" <<EOF
-使用 harness-architect skill。
+使用 klein-harness skill。
 当前项目目录: $PROJECT_ROOT
 项目名: $(basename "$PROJECT_ROOT")
 目标: $PROJECT_GOAL

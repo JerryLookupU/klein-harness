@@ -85,7 +85,7 @@ chmod +x \
 
 for request_path in "${REQUESTS[@]}"; do
   if [ ! -f "$request_path" ]; then
-    printf '{\n  "schemaVersion": "1.0",\n  "generator": "harness-architect",\n  "generatedAt": null,\n  "requests": []\n}\n' > "$request_path"
+    printf '{\n  "schemaVersion": "1.0",\n  "generator": "klein-harness",\n  "generatedAt": null,\n  "requests": []\n}\n' > "$request_path"
   fi
 done
 
@@ -111,13 +111,13 @@ module_path = Path(sys.argv[2]).resolve()
 spec = importlib.util.spec_from_file_location("runtime_common", module_path)
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
-module.ensure_runtime_scaffold(root, generator="harness-architect")
+module.ensure_runtime_scaffold(root, generator="klein-harness")
 PY
 
 cat > "$MANIFEST" <<'JSON'
 {
   "schemaVersion": "1.0",
-  "generator": "harness-architect",
+  "generator": "klein-harness",
   "generatedAt": "INSTALL_TIME",
   "installed": [
     {

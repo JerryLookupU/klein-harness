@@ -31,12 +31,12 @@ Minimal harness tools installed into:
   $PROJECT_ROOT/.harness
 
 Skill trigger note:
-  The skill is triggered by your Codex prompt mentioning "harness-architect"
+  The skill is triggered by your Codex prompt mentioning "klein-harness"
   or by clearly asking for bootstrap / refresh / audit / agent-entry work.
 
 Suggested first prompt for Codex:
 
-使用 harness-architect skill。
+使用 klein-harness skill。
 当前项目目录: $PROJECT_ROOT
 项目名: $REPO_NAME
 目标: $PROJECT_GOAL

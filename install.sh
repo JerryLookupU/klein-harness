@@ -88,7 +88,7 @@ ensure_bin_dir_on_path() {
 
   {
     printf '\n'
-    printf '# Added by harness-architect install.sh\n'
+    printf '# Added by klein-harness install.sh\n'
     printf '%s\n' "$path_line"
   } >> "$rc_file"
   PATH_RC_ACTION="rc-updated"
@@ -255,7 +255,7 @@ if [[ ${#installed[@]} -eq 0 && ${#existing[@]} -eq 0 ]]; then
   exit 1
 fi
 
-if printf '%s\n%s\n' "${installed[*]:-}" "${existing[*]:-}" | tr ' ' '\n' | grep -qx 'harness-architect'; then
+if printf '%s\n%s\n' "${installed[*]:-}" "${existing[*]:-}" | tr ' ' '\n' | grep -qx 'klein-harness'; then
   install_helper_scripts
 
   if [[ "$UPDATE_SHELL_RC" -eq 1 ]]; then

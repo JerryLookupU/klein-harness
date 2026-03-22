@@ -1,7 +1,7 @@
 ```json
 {
   "schemaVersion": "1.0",
-  "generator": "harness-architect",
+  "generator": "klein-harness",
   "generatedAt": "2026-03-19T23:30:00+08:00",
   "mode": "agent-entry",
   "planningStage": "execution-ready",
