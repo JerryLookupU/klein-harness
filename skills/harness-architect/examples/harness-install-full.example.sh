@@ -23,6 +23,10 @@ REQUEST_ARCHIVE_DIR="$HARNESS_DIR/requests/archive"
 REQUEST_INDEX_PATH="$STATE_DIR/request-index.json"
 REQUEST_TASK_MAP_PATH="$STATE_DIR/request-task-map.json"
 PROJECT_META_PATH="$HARNESS_DIR/project-meta.json"
+FEEDBACK_LOG_PATH="$HARNESS_DIR/feedback-log.jsonl"
+FEEDBACK_SUMMARY_PATH="$STATE_DIR/feedback-summary.json"
+RUNNER_STATE_PATH="$STATE_DIR/runner-state.json"
+RUNNER_HEARTBEATS_PATH="$STATE_DIR/runner-heartbeats.json"
 
 mkdir -p "$BIN_DIR" "$SCRIPTS_DIR" "$STATE_DIR" "$TEMPLATES_DIR" "$HARNESS_DIR/drift-log" "$HARNESS_DIR/verification-rules" "$STATE_DIR/runner-logs" "$REQUEST_ARCHIVE_DIR"
 
@@ -84,7 +88,11 @@ if [ ! -f "$REQUEST_QUEUE_PATH" ]; then
   : > "$REQUEST_QUEUE_PATH"
 fi
 
-python3 - <<'PY' "$REQUEST_INDEX_PATH" "$REQUEST_TASK_MAP_PATH" "$PROJECT_META_PATH" "$ROOT"
+if [ ! -f "$FEEDBACK_LOG_PATH" ]; then
+  : > "$FEEDBACK_LOG_PATH"
+fi
+
+python3 - <<'PY' "$REQUEST_INDEX_PATH" "$REQUEST_TASK_MAP_PATH" "$PROJECT_META_PATH" "$FEEDBACK_SUMMARY_PATH" "$RUNNER_STATE_PATH" "$RUNNER_HEARTBEATS_PATH" "$ROOT"
 import json
 import sys
 from datetime import datetime, timezone
@@ -93,7 +101,10 @@ from pathlib import Path
 request_index_path = Path(sys.argv[1])
 request_task_map_path = Path(sys.argv[2])
 project_meta_path = Path(sys.argv[3])
-root = Path(sys.argv[4]).resolve()
+feedback_summary_path = Path(sys.argv[4])
+runner_state_path = Path(sys.argv[5])
+runner_heartbeats_path = Path(sys.argv[6])
+root = Path(sys.argv[7]).resolve()
 timestamp = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
 
 if not request_index_path.exists():
@@ -122,6 +133,40 @@ if not project_meta_path.exists():
         "lifecycle": "initialized",
         "bootstrapStatus": "not_started",
         "requestQueueEnabled": True
+    }, ensure_ascii=False, indent=2) + "\n")
+
+if not feedback_summary_path.exists():
+    feedback_summary_path.write_text(json.dumps({
+        "schemaVersion": "1.0",
+        "generator": "harness-architect",
+        "generatedAt": timestamp,
+        "feedbackLogPath": ".harness/feedback-log.jsonl",
+        "taskFeedbackSummary": {},
+        "recentFailures": [],
+        "illegalActionTaskIds": []
+    }, ensure_ascii=False, indent=2) + "\n")
+
+if not runner_state_path.exists():
+    runner_state_path.write_text(json.dumps({
+        "schemaVersion": "1.0",
+        "generator": "harness-runner",
+        "generatedAt": timestamp,
+        "lastTickAt": None,
+        "lastTrigger": None,
+        "activeRuns": [],
+        "recoverableRuns": [],
+        "staleRuns": [],
+        "dispatchableTaskIds": [],
+        "blockedRoutes": [],
+        "lastErrors": []
+    }, ensure_ascii=False, indent=2) + "\n")
+
+if not runner_heartbeats_path.exists():
+    runner_heartbeats_path.write_text(json.dumps({
+        "schemaVersion": "1.0",
+        "generator": "harness-runner",
+        "generatedAt": timestamp,
+        "entries": {}
     }, ensure_ascii=False, indent=2) + "\n")
 PY
 

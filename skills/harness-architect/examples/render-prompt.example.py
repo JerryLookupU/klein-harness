@@ -9,6 +9,12 @@ def load_json(path: Path):
     return json.loads(path.read_text())
 
 
+def load_optional_json(path: Path):
+    if path.exists():
+        return load_json(path)
+    return None
+
+
 def find_task(tasks, task_id: str):
     for task in tasks:
         if task.get("taskId") == task_id:
@@ -16,12 +22,23 @@ def find_task(tasks, task_id: str):
     raise KeyError(f"task not found: {task_id}")
 
 
-def render_worker_start(task):
+def recent_failures(feedback_summary, task_id: str):
+    if not feedback_summary:
+        return []
+    return (
+        feedback_summary.get("taskFeedbackSummary", {})
+        .get(task_id, {})
+        .get("recentFailures", [])
+    )
+
+
+def render_worker_start(task, failures):
     lines = [
         "你是 `worker`。",
         f"当前模型是 `{task.get('executionModel', 'gpt-5.3-codex')}`。",
         "你不是 `planner`。",
         "你不是 `orchestrator`。",
+        "pre-worker gate 已由程序执行；不要自行重做路由判断。",
         "不要自行改编排。",
         "不要自行改 session routing。",
         f"当前任务: {task.get('taskId')}",
@@ -30,12 +47,17 @@ def render_worker_start(task):
         "先做这几步：",
         "1. 读 progress/task-pool/session-registry。",
         "2. 找到当前 task。",
-        "3. 只按当前 task 执行。",
+        "3. 如果存在 feedback-summary，只读当前 task 最近 3 条高严重度失败。",
+        "4. 只按当前 task 执行。",
     ]
+    for failure in failures:
+        lines.append(
+            f"- recentFailure: {failure.get('feedbackType')} [{failure.get('severity')}] {failure.get('message')}"
+        )
     return "\n".join(lines)
 
 
-def render_worker_execute(task):
+def render_worker_execute(task, failures):
     fields = [
         f"ownedPaths: {task.get('ownedPaths', [])}",
         f"worktreePath: {task.get('worktreePath')}",
@@ -44,7 +66,12 @@ def render_worker_execute(task):
         f"resumeStrategy: {task.get('resumeStrategy')}",
         f"preferredResumeSessionId: {task.get('preferredResumeSessionId')}",
     ]
-    return "\n".join(["执行边界：", *fields])
+    lines = ["执行边界：", *fields]
+    for failure in failures:
+        lines.append(
+            f"avoidRepeat: {failure.get('feedbackType')} [{failure.get('severity')}] {failure.get('message')}"
+        )
+    return "\n".join(lines)
 
 
 def render_worker_recover(task):
@@ -95,16 +122,18 @@ def main():
 
     root = Path(args.root).resolve()
     task_pool = load_json(root / ".harness" / "task-pool.json")
+    feedback_summary = load_optional_json(root / ".harness" / "state" / "feedback-summary.json")
     task = find_task(task_pool.get("tasks", []), args.task_id)
+    failures = recent_failures(feedback_summary, args.task_id)
 
     if args.role == "audit" or task.get("kind") == "audit" or args.stage == "audit":
         print(render_audit(task))
         return
 
     if args.stage == "start":
-        print(render_worker_start(task))
+        print(render_worker_start(task, failures))
     elif args.stage == "execute":
-        print(render_worker_execute(task))
+        print(render_worker_execute(task, failures))
     elif args.stage == "recover":
         print(render_worker_recover(task))
     else:

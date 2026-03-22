@@ -18,5 +18,38 @@
     "Emit a claimable bugfix task for delta detection",
     "Queue merge-gate audit after T-002 completes"
   ],
-  "lastAuditStatus": "warn"
+  "lastAuditStatus": "warn",
+  "recentFailureDigest": [
+    {
+      "id": "FB-00015",
+      "taskId": "T-002",
+      "sessionId": "019d0b19-e0c1-7613-a18e-33380b167c90",
+      "role": "worker",
+      "workerMode": "execution",
+      "feedbackType": "path_conflict",
+      "severity": "error",
+      "source": "worker",
+      "step": "edit",
+      "triggeringAction": "edited src/sync.ts outside ownedPaths",
+      "message": "Worker touched src/sync.ts but task T-002 only owns src/archive/**.",
+      "timestamp": "2026-03-21T20:58:00+08:00"
+    },
+    {
+      "id": "FB-00016",
+      "taskId": "T-002",
+      "sessionId": "019d0b19-e0c1-7613-a18e-33380b167c90",
+      "role": "worker",
+      "workerMode": "execution",
+      "feedbackType": "illegal_action",
+      "severity": "critical",
+      "source": "worker",
+      "step": "verify",
+      "triggeringAction": "expanded ownedPaths without routing approval",
+      "message": "Worker attempted to widen ownedPaths instead of requesting replan.",
+      "timestamp": "2026-03-21T20:59:00+08:00"
+    }
+  ],
+  "recentIllegalActionTaskIds": [
+    "T-002"
+  ]
 }

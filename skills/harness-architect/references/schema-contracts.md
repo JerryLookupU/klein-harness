@@ -42,6 +42,7 @@
 - `state/current.json`
 - `state/runtime.json`
 - `state/blueprint-index.json`
+- `state/feedback-summary.json`
 
 推荐规则：
 
@@ -77,6 +78,7 @@
 - `session registry` -> `examples/session-registry.example.json`
 - `lineage.jsonl` -> `examples/lineage.example.jsonl`
 - `drift-log/*.jsonl` -> `examples/drift-log.example.jsonl`
+- `feedback-log.jsonl` -> `examples/feedback-log.example.jsonl`
 - `tooling-manifest.json` -> `examples/tooling-manifest.example.json`
 - `session-init.sh` -> `examples/session-init.example.sh`
 - `audit-report.md` -> `examples/audit-report.example.md`
@@ -84,6 +86,7 @@
 - `state/current.json` -> `examples/current-state.example.json`
 - `state/runtime.json` -> `examples/runtime-state.example.json`
 - `state/blueprint-index.json` -> `examples/blueprint-index.example.json`
+- `state/feedback-summary.json` -> `examples/feedback-summary.example.json`
 
 如果项目准备把 CLI 模板复制到 `.harness/bin` / `.harness/scripts`，推荐再维护：
 
@@ -95,6 +98,75 @@
 - 记录来源模板
 - 记录版本或刷新时间
 - refresh 时据此判断是否需要增量更新
+
+## `feedback-log.jsonl`
+
+如果项目需要稳定恢复失败上下文，建议追加维护：
+
+- `.harness/feedback-log.jsonl`
+
+这是 append-only 失败事件流，不要覆盖旧事件。
+
+每条记录推荐至少包含：
+
+- `id`
+- `taskId`
+- `sessionId`
+- `role`
+- `workerMode`
+- `feedbackType`
+- `severity`
+- `source`
+- `step`
+- `triggeringAction`
+- `message`
+- `timestamp`
+
+推荐 `feedbackType` 先固定一小组：
+
+- `illegal_action`
+- `verification_failure`
+- `dependency_missing`
+- `path_conflict`
+- `session_conflict`
+- `execution_error`
+- `timeout`
+- `replan_required`
+
+推荐规则：
+
+- 非法越权动作不要混成普通 execution failure
+- worker / audit 失败时先写结构化 feedback，再写长文本总结
+- `feedback-log.jsonl` 保留完整历史，供 audit 和回放使用
+
+## `state/feedback-summary.json`
+
+如果 query / dashboard / routing 需要热路径读取最近失败窗口，建议额外维护：
+
+- `.harness/state/feedback-summary.json`
+
+推荐字段：
+
+- `schemaVersion`
+- `generator`
+- `generatedAt`
+- `feedbackLogPath`
+- `feedbackEventCount`
+- `errorCount`
+- `criticalCount`
+- `illegalActionCount`
+- `tasksWithRecentFailures`
+- `byType`
+- `bySeverity`
+- `recentFailures`
+- `taskFeedbackSummary`
+
+推荐规则：
+
+- `recentFailures` 默认只保留最近 5 条 `severity >= error`
+- `taskFeedbackSummary[taskId].recentFailures` 默认只保留最近 3 条
+- orchestrator / worker prompt 默认优先读 `feedback-summary.json`，不要先扫全文 `feedback-log.jsonl`
+- 如果最近失败窗口命中 `illegal_action` / `path_conflict` / `session_conflict`，默认优先停下而不是盲目续跑
 
 ## `work-items.json`
 
@@ -226,6 +298,8 @@
 - `lastKnownSessionId`
 - `sessionFamilyId`
 - `cacheAffinityKey`
+- `routingModel`
+- `executionModel`
 - `routingReason`
 - `operatorNotes`
 - `reviewOfTaskIds`
@@ -267,6 +341,31 @@
 - audit task 不直接改业务源码，只写审计产物与最小状态回写
 - audit task 发现问题时，优先写 `replan-requests.json` / `stop-requests.json`，再把结论交回 `orchestrator`
 - 如果 audit task 需要看精确改动范围，优先对 `diffBase...branchName` 做比对
+
+## `harness-route-session` 输出契约
+
+如果项目采用“程序 gate + LLM fallback”派发，建议 `harness-route-session` 至少输出：
+
+- `taskId`
+- `routingMode`
+- `needsOrchestrator`
+- `dispatchReady`
+- `gateStatus`
+- `gateReason`
+- `resumeStrategy`
+- `preferredResumeSessionId`
+- `candidateResumeSessionIds`
+- `promptStages`
+- `recentFailures`
+
+推荐语义：
+
+- `routingMode = "programmatic" | "llm-fallback"`
+- `needsOrchestrator = true` 表示程序 gate 不足以安全放行，必须回退给 `gpt-5.4`
+- `dispatchReady = true` 表示 runner 可以直接投递 worker
+- `gateStatus = "claimable" | "blocked" | "orchestrator_review"`
+- `promptStages` 由程序 gate 选择，如 `["start", "execute", "recover"]` 或 `["audit"]`
+- `recentFailures` 默认只带当前 task 最近 3 条高严重度失败
 
 ## git / worktree 推荐结构
 
@@ -405,7 +504,7 @@
 
 推荐规则：
 
-- `gpt-5.4` 应有一条持续的 orchestration session，专门承载 draft / refinement / pre-worker routing / replan
+- `gpt-5.4` 应有一条持续的 orchestration session，专门承载 draft / refinement / pre-worker routing fallback / replan
 - `gpt-5.4` 的 orchestration session 默认视为单写主线，不要让多个并发任务同时 `resume` 同一个 orchestration session
 - 如果需要“分支干活”，优先让 `gpt-5.4` 基于 orchestration session 产出 routing 结论，再新开或续用别的 worker session；不要把 orchestration session 当成可并发 fork 的共享工作树
 - 只有“同 parent / 同冲突域 / 同角色 / 高上下文重合”的直接后续任务才优先 `resume`

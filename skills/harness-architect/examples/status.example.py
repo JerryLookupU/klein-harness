@@ -38,6 +38,7 @@ def main():
     state_dir = harness / "state"
     current_state = load_optional_json(state_dir / "current.json")
     runtime_state = load_optional_json(state_dir / "runtime.json")
+    feedback_summary = load_optional_json(state_dir / "feedback-summary.json")
 
     progress = current_state or load_progress(harness / "progress.md")
     task_pool = load_json(harness / "task-pool.json")
@@ -90,12 +91,19 @@ def main():
     print(f"active runners: {(runtime_state or {}).get('activeRunnerCount', 0)}")
     print(f"recoverable tasks: {(runtime_state or {}).get('recoverableTaskCount', 0)}")
     print(f"stale runners: {(runtime_state or {}).get('staleRunnerCount', 0)}")
+    print(f"blocked routes: {(runtime_state or {}).get('blockedRouteCount', 0)}")
     print(f"verified tasks: {(runtime_state or {}).get('verifiedTaskCount', 0)}")
     print(f"failed verifications: {(runtime_state or {}).get('failingVerificationCount', 0)}")
+    print(f"feedback errors: {(runtime_state or {}).get('feedbackErrorCount', (feedback_summary or {}).get('errorCount', 0))}")
+    print(f"illegal actions: {(runtime_state or {}).get('illegalActionCount', (feedback_summary or {}).get('illegalActionCount', 0))}")
     print(f"orchestration session: {(runtime_state or {}).get('orchestrationSessionId', session_registry.get('orchestrationSessionId', '-'))}")
     print(f"pending blockers: {len(blockers)}")
     if (runtime_state or {}).get('lastTickAt'):
         print(f"last runner tick: {(runtime_state or {}).get('lastTickAt')}")
+    recent_failures = (feedback_summary or {}).get("recentFailures", [])
+    if recent_failures:
+        latest = recent_failures[-1]
+        print(f"latest failure: {latest.get('taskId', '-')} {latest.get('feedbackType', '-')} [{latest.get('severity', '-')}]")
     print()
     print("next actions:")
     if next_actions:

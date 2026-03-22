@@ -1,0 +1,124 @@
+{
+  "schemaVersion": "1.0",
+  "generator": "harness-architect",
+  "generatedAt": "2026-03-21T21:10:00+08:00",
+  "feedbackLogPath": ".harness/feedback-log.jsonl",
+  "feedbackEventCount": 4,
+  "errorCount": 3,
+  "criticalCount": 1,
+  "illegalActionCount": 1,
+  "tasksWithRecentFailures": [
+    "T-002"
+  ],
+  "byType": {
+    "execution_error": 1,
+    "verification_failure": 1,
+    "path_conflict": 1,
+    "illegal_action": 1
+  },
+  "bySeverity": {
+    "warning": 1,
+    "error": 2,
+    "critical": 1
+  },
+  "recentFailures": [
+    {
+      "id": "FB-00014",
+      "taskId": "T-002",
+      "sessionId": "019d0b19-e0c1-7613-a18e-33380b167c90",
+      "role": "worker",
+      "workerMode": "execution",
+      "feedbackType": "verification_failure",
+      "severity": "error",
+      "source": "verification",
+      "step": "verify",
+      "triggeringAction": "harness-verify-task",
+      "message": "Delta detection still reprocessed unchanged archive rows.",
+      "timestamp": "2026-03-21T20:55:00+08:00"
+    },
+    {
+      "id": "FB-00015",
+      "taskId": "T-002",
+      "sessionId": "019d0b19-e0c1-7613-a18e-33380b167c90",
+      "role": "worker",
+      "workerMode": "execution",
+      "feedbackType": "path_conflict",
+      "severity": "error",
+      "source": "worker",
+      "step": "edit",
+      "triggeringAction": "edited src/sync.ts outside ownedPaths",
+      "message": "Worker touched src/sync.ts but task T-002 only owns src/archive/**.",
+      "timestamp": "2026-03-21T20:58:00+08:00"
+    },
+    {
+      "id": "FB-00016",
+      "taskId": "T-002",
+      "sessionId": "019d0b19-e0c1-7613-a18e-33380b167c90",
+      "role": "worker",
+      "workerMode": "execution",
+      "feedbackType": "illegal_action",
+      "severity": "critical",
+      "source": "worker",
+      "step": "verify",
+      "triggeringAction": "expanded ownedPaths without routing approval",
+      "message": "Worker attempted to widen ownedPaths instead of requesting replan.",
+      "timestamp": "2026-03-21T20:59:00+08:00"
+    }
+  ],
+  "taskFeedbackSummary": {
+    "T-002": {
+      "taskId": "T-002",
+      "feedbackCount": 4,
+      "errorCount": 3,
+      "criticalCount": 1,
+      "latestFeedbackType": "illegal_action",
+      "latestSeverity": "critical",
+      "latestMessage": "Worker attempted to widen ownedPaths instead of requesting replan.",
+      "latestTimestamp": "2026-03-21T20:59:00+08:00",
+      "recentFailures": [
+        {
+          "id": "FB-00014",
+          "taskId": "T-002",
+          "sessionId": "019d0b19-e0c1-7613-a18e-33380b167c90",
+          "role": "worker",
+          "workerMode": "execution",
+          "feedbackType": "verification_failure",
+          "severity": "error",
+          "source": "verification",
+          "step": "verify",
+          "triggeringAction": "harness-verify-task",
+          "message": "Delta detection still reprocessed unchanged archive rows.",
+          "timestamp": "2026-03-21T20:55:00+08:00"
+        },
+        {
+          "id": "FB-00015",
+          "taskId": "T-002",
+          "sessionId": "019d0b19-e0c1-7613-a18e-33380b167c90",
+          "role": "worker",
+          "workerMode": "execution",
+          "feedbackType": "path_conflict",
+          "severity": "error",
+          "source": "worker",
+          "step": "edit",
+          "triggeringAction": "edited src/sync.ts outside ownedPaths",
+          "message": "Worker touched src/sync.ts but task T-002 only owns src/archive/**.",
+          "timestamp": "2026-03-21T20:58:00+08:00"
+        },
+        {
+          "id": "FB-00016",
+          "taskId": "T-002",
+          "sessionId": "019d0b19-e0c1-7613-a18e-33380b167c90",
+          "role": "worker",
+          "workerMode": "execution",
+          "feedbackType": "illegal_action",
+          "severity": "critical",
+          "source": "worker",
+          "step": "verify",
+          "triggeringAction": "expanded ownedPaths without routing approval",
+          "message": "Worker attempted to widen ownedPaths instead of requesting replan.",
+          "timestamp": "2026-03-21T20:59:00+08:00"
+        }
+      ]
+    }
+  }
+}

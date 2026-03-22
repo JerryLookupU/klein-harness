@@ -9,7 +9,7 @@
       "model": "gpt-5.4",
       "role": "orchestrator",
       "status": "active",
-      "purpose": "draft/refinement orchestration, pre-worker session routing, replan",
+      "purpose": "draft/refinement orchestration, pre-worker routing fallback, replan",
       "lastUsedAt": "2026-03-21T20:28:00+08:00"
     }
   ],
@@ -51,6 +51,11 @@
     {
       "taskId": "T-002",
       "orchestrationSessionId": "019d0b19-aaaa-bbbb-cccc-111111111111",
+      "routingMode": "llm-fallback",
+      "needsOrchestrator": true,
+      "dispatchReady": false,
+      "gateStatus": "orchestrator_review",
+      "gateReason": "recent failures require review: path_conflict, illegal_action",
       "routingModel": "gpt-5.4",
       "executionModel": "gpt-5.3-codex",
       "resumeStrategy": "resume",
@@ -62,11 +67,17 @@
       "sessionFamilyId": "SF-F003-WI001",
       "cacheAffinityKey": "feature:F-003|parent:WI-001|role:worker",
       "routingReason": "先经 5.4 编排主线 session 复查任务依赖与冲突域，再决定线性续用已有 worker session。",
+      "promptStages": [],
       "routedAt": "2026-03-21T20:20:00+08:00"
     },
     {
       "taskId": "T-004",
       "orchestrationSessionId": "019d0b19-aaaa-bbbb-cccc-111111111111",
+      "routingMode": "programmatic",
+      "needsOrchestrator": false,
+      "dispatchReady": true,
+      "gateStatus": "claimable",
+      "gateReason": "program gate passed",
       "routingModel": "gpt-5.4",
       "executionModel": "gpt-5.3-codex",
       "resumeStrategy": "fresh",
@@ -77,6 +88,7 @@
       "sessionFamilyId": "SF-F003-WI001",
       "cacheAffinityKey": "feature:F-003|parent:WI-001|role:worker|mode:audit",
       "routingReason": "audit worker 参考 T-002 的上下文，但不直接续写同一个 active session；改为记录逻辑 branch 关系并新开 session。",
+      "promptStages": ["audit"],
       "branchOfSessionId": "019d0b19-e0c1-7613-a18e-33380b167c90",
       "routedAt": "2026-03-21T20:29:00+08:00"
     }

@@ -10,13 +10,12 @@ summary: 修复增量同步误判，确保只处理变化数据。
 active workers: 2
 active audit workers: 1
 active orchestrator tasks: 0
+blocked routes: 1
+feedback errors: 3
+illegal actions: 1
+latest failure: T-042 illegal_action [critical]
 pending replan requests: 1
 pending stop requests: 0
-
-tracker progress:
-- sample size: 200
-- closure quality: 94.4/100
-- review confidence: 95.3/100 (A)
 
 next actions:
 - 等待 T-041 局部 replan 完成后认领 T-042

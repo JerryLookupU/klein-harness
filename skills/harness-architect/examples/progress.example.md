@@ -19,6 +19,25 @@
   ],
   "lastAuditStatus": "warn",
   "pendingOrchestrationCount": 1,
+  "recentFailureDigest": [
+    {
+      "id": "FB-00015",
+      "taskId": "T-002",
+      "feedbackType": "path_conflict",
+      "severity": "error",
+      "message": "Worker touched src/sync.ts but task T-002 only owns src/archive/**.",
+      "timestamp": "2026-03-21T20:58:00+08:00"
+    },
+    {
+      "id": "FB-00016",
+      "taskId": "T-002",
+      "feedbackType": "illegal_action",
+      "severity": "critical",
+      "message": "Worker attempted to widen ownedPaths instead of requesting replan.",
+      "timestamp": "2026-03-21T20:59:00+08:00"
+    }
+  ],
+  "recentIllegalActionTaskIds": ["T-002"],
   "claimSummary": {
     "activePlannerTasks": 0,
     "activeOrchestratorTasks": 1,
@@ -60,6 +79,18 @@
 - pass: 5
 - warn: 2
 - fail: 0
+
+### Recent Failure Window
+
+- T-002 `verification_failure`: Delta detection still reprocessed unchanged archive rows.
+- T-002 `path_conflict`: Worker touched `src/sync.ts` outside `ownedPaths`.
+- T-002 `illegal_action`: Worker attempted to widen `ownedPaths` instead of requesting replan.
+
+处理原则：
+
+1. orchestrator 先读取 `.harness/state/feedback-summary.json`
+2. worker 只读取当前 task 最近 3 条高严重度失败
+3. 命中 `illegal_action` / `path_conflict` 时优先 replan，不直接 resume 原 session
 
 ### Next Steps
 

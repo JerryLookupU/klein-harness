@@ -8,7 +8,7 @@
 
 - `codex exec`
 - `codex exec resume`
-- `gpt-5.4` 用于 orchestration、pre-worker routing、prompt refinement、replan
+- `gpt-5.4` 用于 orchestration fallback、prompt refinement、replan
 - `gpt-5.3-codex` 用于 worker execution
 
 仓库同时保留了对 Claude 与其他 agent 工作流的兼容思路，但命令组织、session 路由、prompt 模板与 operator CLI 以 `Codex-first` 为默认设计中心。
@@ -215,6 +215,12 @@ OpenClaw / shell / cron / future callers
 ./skills/harness-architect/examples/harness-install-full.example.sh <PROJECT_ROOT>
 ```
 
+发布前 smoke test：
+
+```bash
+bash ./skills/harness-architect/examples/harness-release-smoke.example.sh
+```
+
 进入新项目并打印完整 bootstrap 指令：
 
 ```bash
@@ -237,12 +243,13 @@ python3 .harness/scripts/refresh-state.py .
 
 ```bash
 .harness/bin/harness-query overview .
+.harness/bin/harness-query feedback .
 ```
 
 ### 核心模型
 
 - `gpt-5.4`
-  负责 orchestration、pre-worker routing、prompt refinement、replan
+  负责 orchestration fallback、prompt refinement、replan
 - `gpt-5.3-codex`
   负责 worker execution
 - `orchestrationSessionId`
@@ -278,6 +285,7 @@ python3 .harness/scripts/refresh-state.py .
 - `.harness/state/current.json`
 - `.harness/state/runtime.json`
 - `.harness/state/blueprint-index.json`
+- `.harness/state/feedback-summary.json`
 
 建议人工优先阅读：
 
@@ -285,6 +293,7 @@ python3 .harness/scripts/refresh-state.py .
 - `.harness/work-items.json`
 - `.harness/task-pool.json`
 - `.harness/spec.json`
+- `.harness/feedback-log.jsonl`
 
 每轮 orchestration / daemon / session 结束后，建议刷新热状态：
 
@@ -312,6 +321,7 @@ harness-report /path/to/project --request-id R-0003 --format json
 .harness/bin/harness-report .
 .harness/bin/harness-query overview . --text
 .harness/bin/harness-query current . --text
+.harness/bin/harness-query feedback . --text
 .harness/bin/harness-dashboard .
 .harness/bin/harness-watch . 2
 ```
@@ -320,6 +330,7 @@ runner / verification 入口：
 
 ```bash
 .harness/bin/harness-runner tick .
+.harness/bin/harness-runner tick . --dispatch-mode print
 .harness/bin/harness-runner list .
 .harness/bin/harness-runner attach T-004 .
 .harness/bin/harness-runner recover T-004 .
@@ -327,12 +338,17 @@ runner / verification 入口：
 python3 .harness/scripts/refresh-state.py .
 ```
 
+说明：
+
+- `--dispatch-mode tmux` 是默认真实派发模式
+- `--dispatch-mode print` 只生成 prompt / runner script，不启动 `tmux`，适合 smoke test 和发布前检查
+
 ### 典型执行链
 
 ```text
 session-init
--> gpt-5.4 orchestration
--> pre-worker routing
+-> program pre-worker gate
+-> if ambiguous: gpt-5.4 orchestration fallback
 -> gpt-5.3-codex worker
 -> audit worker
 -> merge / replan / stop
@@ -351,10 +367,10 @@ session-init
 +======================================================+
 || Execution Core                                      ||
 ||----------------------------------------------------||
-|| gpt-5.4 orchestration                              ||
-|| draft -> refinement                                ||
-|| pre-worker routing                                 ||
-|| resume or fresh                                    ||
+|| program pre-worker gate                            ||
+|| claimable / blocked / orchestrator_review          ||
+|| fresh / resume / promptStages                      ||
+|| if ambiguous -> gpt-5.4 orchestration fallback     ||
 || gpt-5.3-codex worker                               ||
 || worktree execution                                 ||
 || diff + verification                                ||
@@ -437,7 +453,7 @@ The current version is primarily designed for `Codex` workflows, with the follow
 
 - `codex exec`
 - `codex exec resume`
-- `gpt-5.4` for orchestration, pre-worker routing, prompt refinement, and replanning
+- `gpt-5.4` for orchestration fallback, prompt refinement, and replanning
 - `gpt-5.3-codex` for worker execution
 
 The repository also keeps a compatibility path for Claude and other agent workflows, but its command layout, session routing, prompt templates, and operator CLI are organized around a `Codex-first` model.
@@ -639,7 +655,7 @@ Run a structured query:
 ### Core Model
 
 - `gpt-5.4`
-  handles orchestration, pre-worker routing, prompt refinement, and replanning
+  handles orchestration fallback, prompt refinement, and replanning
 - `gpt-5.3-codex`
   handles worker execution
 - `orchestrationSessionId`
@@ -675,6 +691,7 @@ Tools should prefer:
 - `.harness/state/current.json`
 - `.harness/state/runtime.json`
 - `.harness/state/blueprint-index.json`
+- `.harness/state/feedback-summary.json`
 
 Humans should usually start with:
 
@@ -682,11 +699,18 @@ Humans should usually start with:
 - `.harness/work-items.json`
 - `.harness/task-pool.json`
 - `.harness/spec.json`
+- `.harness/feedback-log.jsonl`
 
 After each orchestration / daemon / session round, refresh hot state:
 
 ```bash
 python3 .harness/scripts/refresh-state.py .
+```
+
+Release smoke:
+
+```bash
+bash ./skills/harness-architect/examples/harness-release-smoke.example.sh
 ```
 
 ### Common CLI
@@ -697,6 +721,7 @@ Machine-readable queries:
 .harness/bin/harness-query overview .
 .harness/bin/harness-query progress .
 .harness/bin/harness-query current .
+.harness/bin/harness-query feedback .
 .harness/bin/harness-query blueprint .
 .harness/bin/harness-query task . T-004
 ```
@@ -713,8 +738,8 @@ Human-readable dashboard:
 
 ```text
 session-init
--> gpt-5.4 orchestration
--> pre-worker routing
+-> program pre-worker gate
+-> if ambiguous: gpt-5.4 orchestration fallback
 -> gpt-5.3-codex worker
 -> audit worker
 -> merge / replan / stop
@@ -733,10 +758,10 @@ session-init
 +======================================================+
 || Execution Core                                      ||
 ||----------------------------------------------------||
-|| gpt-5.4 orchestration                              ||
-|| draft -> refinement                                ||
-|| pre-worker routing                                 ||
-|| resume or fresh                                    ||
+|| program pre-worker gate                            ||
+|| claimable / blocked / orchestrator_review          ||
+|| fresh / resume / promptStages                      ||
+|| if ambiguous -> gpt-5.4 orchestration fallback     ||
 || gpt-5.3-codex worker                               ||
 || worktree execution                                 ||
 || diff + verification                                ||

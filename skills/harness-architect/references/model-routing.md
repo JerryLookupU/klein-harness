@@ -11,11 +11,16 @@
 
 如果用户明确要求“高阶模型做编排，低阶模型做执行”，默认按下面这套：
 
+- 程序 gate
+  - claimable / blocked 判断
+  - dependsOn / ownedPaths / active session 冲突判断
+  - `fresh / resume` 的规则内决策
+  - prompt 层级选择
 - `gpt-5.4`
   - draft orchestration
   - refinement orchestration
-  - task routing
-  - `fresh / resume` 判断
+  - task routing fallback
+  - 语义性 `fresh / resume` 判断
   - 给 `gpt-5.3-codex` 生成 worker prompt
 - `gpt-5.3-codex`
   - 按已声明 task 执行
@@ -33,12 +38,13 @@
 ## 推荐一条持续的 orchestration session
 
 `gpt-5.4` 不只是单次判断器，更适合有一条持续追加的编排主线 session。
+但这条 session 不应该成为每个 worker 派发前的默认路径。
 
 这条 session 默认负责：
 
 - 初始 draft orchestration
 - refinement orchestration
-- pre-worker session routing
+- pre-worker routing fallback
 - replan / rollback
 - session 连接判断
 
@@ -47,8 +53,8 @@
 - 整个 harness 默认只有一条活跃的 `orchestrationSessionId`
 - 这条 session 给 `gpt-5.4`
 - worker 不直接共用这条 session
-- worker 只消费这条 session 产出的 routing 决策
-- worker 可以因为依赖关系接入别的 worker session，但必须由 `gpt-5.4` 明确选中后再 claim 绑定
+- worker 只消费程序 gate 或这条 session 产出的 routing 决策
+- worker 可以因为依赖关系接入别的 worker session，但必须先经过程序 gate；若存在歧义，再由 `gpt-5.4` 明确选中后再 claim 绑定
 
 ## 为什么不要让 `gpt-5.3-codex` 自己判断 resume
 
@@ -56,16 +62,18 @@
 - 它更容易低估旧 session 的污染
 - 它更容易在角色切换或 replan 之后继续沿用不该续用的上下文
 
-所以：
+所以默认建议改成：
 
-- `resume` 判断交给 `gpt-5.4`
+- 规则内 `resume` 判断交给程序 gate
+- 语义性或冲突性 `resume` 判断交给 `gpt-5.4`
 - 执行交给 `gpt-5.3-codex`
 
 进一步约束：
 
 - 这不是 worker 运行中的附带动作
 - 这是 pre-worker gate
-- 没经过 `gpt-5.4` 的 session 连接判断，不要直接放行 worker
+- 先跑程序 gate
+- 只有 gate 判定 `needsOrchestrator=true` 时，才调用 `gpt-5.4`
 
 ## `fresh` vs `resume` 判定
 
@@ -159,12 +167,14 @@
 
 更稳的做法是：
 
-1. 先 `resume orchestrationSessionId`，让 `gpt-5.4` 进入完整编排上下文
-2. 用 `gpt-5.4` 决定 `fresh / resume`
-3. 保持稳定 prefix
-4. 把高频变化信息留在 task suffix
-5. 只在线性后续 task 上续 session
-6. 并行 sibling 默认新开 session
+1. 先跑程序 gate，筛掉依赖未满足、路径冲突、活跃 session 冲突
+2. 先读取 `.harness/state/feedback-summary.json` 中当前 task 最近失败窗口
+3. 只有 gate 判定 `needsOrchestrator=true` 时，才 `resume orchestrationSessionId` 让 `gpt-5.4` 进入完整编排上下文
+4. 由程序 gate 或 `gpt-5.4` 产出 `fresh / resume`
+5. 保持稳定 prefix
+6. 把高频变化信息留在 task suffix
+7. 只在线性后续 task 上续 session
+8. 并行 sibling 默认新开 session
 
 ## 建议输出 machine-readable routing decision
 
@@ -229,6 +239,7 @@
 2. 再给固定执行顺序
 3. 再给固定回写字段
 4. 再给固定停止条件
+5. 最近失败窗口默认只给当前 task 最近 3 条高严重度反馈
 
 如果 task 很重，或者下游模型阅读能力偏弱，推荐再做一层“渐进式 prompt 暴露”：
 

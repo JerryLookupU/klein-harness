@@ -124,37 +124,20 @@ def build_codex_command(session_id: str | None, project_root: str) -> list[str]:
     ]
 
 
-def decide_resume_session(task: dict, session_registry: dict, heartbeats: dict, active_tasks: list[dict]) -> str | None:
-    """Decide which session to resume, or None for fresh exec."""
-    # Priority 1: claim.boundSessionId if safe
-    bound = task.get("claim", {}).get("boundSessionId")
-    if bound:
-        # Check no other active task is using this session
-        for other in active_tasks:
-            if other["taskId"] == task["taskId"]:
-                continue
-            if other.get("claim", {}).get("boundSessionId") == bound:
-                return None  # conflict
-        return bound
-
-    # Priority 2: preferredResumeSessionId
-    if task.get("resumeStrategy") == "resume":
-        preferred = task.get("preferredResumeSessionId")
-        if preferred:
-            for other in active_tasks:
-                if other["taskId"] == task["taskId"]:
-                    continue
-                if other.get("claim", {}).get("boundSessionId") == preferred:
-                    return None
-            return preferred
-
-    return None
+def call_route_session(script_path: Path, project_root: Path, task_id: str) -> dict:
+    result = subprocess.run(
+        ["python3", str(script_path), "--root", str(project_root), "--task-id", task_id],
+        capture_output=True, text=True, check=True,
+    )
+    return json.loads(result.stdout)
 
 
-def dispatch_task(task: dict, session_id: str | None, project_root: str,
-                  project_name: str, state_dir: Path, log_dir: Path) -> dict:
-    """Launch a task in a detached tmux session."""
+def dispatch_task(task: dict, route_decision: dict, project_root: str,
+                  project_name: str, state_dir: Path, log_dir: Path,
+                  dispatch_mode: str = "tmux") -> dict:
+    """Prepare task execution and optionally launch it in a detached tmux session."""
     task_id = task["taskId"]
+    session_id = route_decision.get("preferredResumeSessionId") if route_decision.get("resumeStrategy") == "resume" else None
     tmux_name = make_tmux_session_name(task_id, project_name)
     log_path = log_dir / f"{task_id}.log"
     log_dir.mkdir(parents=True, exist_ok=True)
@@ -174,12 +157,20 @@ def dispatch_task(task: dict, session_id: str | None, project_root: str,
         f"title: {task.get('title', '-')}",
         f"summary: {task.get('summary', '-')}",
         f"roleHint: {role}",
-        f"resumeStrategy: {'resume' if session_id else 'fresh'}",
+        f"resumeStrategy: {route_decision.get('resumeStrategy', 'fresh')}",
+        f"routingMode: {route_decision.get('routingMode')}",
+        f"gateReason: {route_decision.get('gateReason')}",
+        f"promptStages: {route_decision.get('promptStages', [])}",
         "",
         "请读取 .harness/progress.md、.harness/task-pool.json、.harness/session-registry.json，",
+        "如果存在 .harness/state/feedback-summary.json，只读取当前 task 最近 3 条高严重度失败。",
         f"找到任务 {task_id}，按其 ownedPaths 和 verificationRuleIds 执行。",
         "执行完成后回写 task-pool.json、progress.md、lineage.jsonl、session-registry.json。",
     ]
+    for failure in route_decision.get("recentFailures", [])[:3]:
+        prompt_lines.append(
+            f"- recentFailure: {failure.get('feedbackType')} [{failure.get('severity')}] {failure.get('message')}"
+        )
     prompt_path.write_text("\n".join(prompt_lines) + "\n")
 
     # Build runner script
@@ -219,23 +210,29 @@ def dispatch_task(task: dict, session_id: str | None, project_root: str,
     )
     runner_script.chmod(0o755)
 
-    # Launch tmux
-    subprocess.run(
-        ["tmux", "new-session", "-d", "-s", tmux_name, f"bash {runner_script}"],
-        check=True,
-    )
-    subprocess.run(
-        ["tmux", "set-option", "-t", tmux_name, "remain-on-exit", "on"],
-        capture_output=True,
-    )
+    if dispatch_mode == "tmux":
+        subprocess.run(
+            ["tmux", "new-session", "-d", "-s", tmux_name, f"bash {runner_script}"],
+            check=True,
+        )
+        subprocess.run(
+            ["tmux", "set-option", "-t", tmux_name, "remain-on-exit", "on"],
+            capture_output=True,
+        )
+    else:
+        tmux_name = None
 
     return {
         "taskId": task_id,
+        "dispatchMode": dispatch_mode,
         "tmuxSession": tmux_name,
-        "strategy": "resume" if session_id else "fresh",
+        "strategy": route_decision.get("resumeStrategy", "fresh"),
         "sessionId": session_id,
         "logPath": str(log_path),
+        "promptPath": str(prompt_path),
+        "runnerScriptPath": str(runner_script),
         "dispatchedAt": now_iso(),
+        "gateReason": route_decision.get("gateReason"),
     }
 
 
@@ -249,7 +246,7 @@ def load_heartbeats(state_dir: Path) -> dict:
 
 def write_runner_state(state_dir: Path, trigger: str, active_runs: list,
                        recoverable_runs: list, stale_runs: list,
-                       dispatchable_ids: list, errors: list):
+                       dispatchable_ids: list, errors: list, blocked_routes: list):
     write_json(state_dir / "runner-state.json", {
         "schemaVersion": "1.0",
         "generator": "harness-runner",
@@ -260,6 +257,7 @@ def write_runner_state(state_dir: Path, trigger: str, active_runs: list,
         "recoverableRuns": [{"taskId": t["taskId"]} for t in recoverable_runs],
         "staleRuns": stale_runs,
         "dispatchableTaskIds": dispatchable_ids,
+        "blockedRoutes": blocked_routes,
         "lastErrors": errors,
     })
 
@@ -291,8 +289,8 @@ def claim_dispatched_task(harness: Path, task_id: str, run: dict):
         task["status"] = "claimed"
     claim["agentId"] = "harness-runner"
     claim["role"] = task.get("roleHint") or claim.get("role")
-    claim["nodeId"] = f"tmux:{run['tmuxSession']}"
-    claim["tmuxSession"] = run["tmuxSession"]
+    claim["nodeId"] = f"tmux:{run['tmuxSession']}" if run.get("tmuxSession") else "dispatch:print"
+    claim["tmuxSession"] = run.get("tmuxSession")
     claim["boundSessionId"] = run.get("sessionId") or claim.get("boundSessionId")
     claim["boundResumeStrategy"] = run.get("strategy")
     claim["boundAt"] = now
@@ -302,16 +300,15 @@ def claim_dispatched_task(harness: Path, task_id: str, run: dict):
     write_json(task_pool_path, task_pool)
 
 
-def cmd_tick(root: Path, trigger: str = "shell"):
+def cmd_tick(root: Path, trigger: str = "shell", dispatch_mode: str = "tmux"):
     harness = root / ".harness"
     state_dir = harness / "state"
     log_dir = state_dir / "runner-logs"
     project_name = root.name
 
     task_pool = load_json(harness / "task-pool.json")
-    session_registry_path = harness / "session-registry.json"
-    session_registry = load_json(session_registry_path) if session_registry_path.exists() else {}
     heartbeats = load_heartbeats(state_dir)
+    route_session_py = state_dir.parent / "scripts" / "route-session.py"
     tasks = task_pool.get("tasks", [])
 
     active = find_active_tasks(tasks)
@@ -341,27 +338,44 @@ def cmd_tick(root: Path, trigger: str = "shell"):
 
     errors = []
     dispatched = []
+    blocked_routes = []
 
     # Priority 1: recover stale tasks
     for t in recoverable:
-        session_id = decide_resume_session(t, session_registry, heartbeats, active)
         try:
-            run = dispatch_task(t, session_id, str(root), project_name, state_dir, log_dir)
-            claim_dispatched_task(harness, t["taskId"], run)
+            route_decision = call_route_session(route_session_py, root, t["taskId"])
+            if not route_decision.get("dispatchReady"):
+                blocked_routes.append({
+                    "taskId": t["taskId"],
+                    "gateStatus": route_decision.get("gateStatus"),
+                    "gateReason": route_decision.get("gateReason"),
+                })
+                continue
+            run = dispatch_task(t, route_decision, str(root), project_name, state_dir, log_dir, dispatch_mode)
+            if dispatch_mode == "tmux":
+                claim_dispatched_task(harness, t["taskId"], run)
+                write_heartbeat(state_dir, t["taskId"], run["tmuxSession"])
             dispatched.append(run)
-            write_heartbeat(state_dir, t["taskId"], run["tmuxSession"])
         except Exception as exc:
             errors.append({"taskId": t["taskId"], "error": str(exc)})
 
     # Priority 2: dispatch new tasks if no active work and slots available
     if not live_runs and not dispatched and dispatchable:
         t = dispatchable[0]
-        session_id = decide_resume_session(t, session_registry, heartbeats, active)
         try:
-            run = dispatch_task(t, session_id, str(root), project_name, state_dir, log_dir)
-            claim_dispatched_task(harness, t["taskId"], run)
-            dispatched.append(run)
-            write_heartbeat(state_dir, t["taskId"], run["tmuxSession"])
+            route_decision = call_route_session(route_session_py, root, t["taskId"])
+            if not route_decision.get("dispatchReady"):
+                blocked_routes.append({
+                    "taskId": t["taskId"],
+                    "gateStatus": route_decision.get("gateStatus"),
+                    "gateReason": route_decision.get("gateReason"),
+                })
+            else:
+                run = dispatch_task(t, route_decision, str(root), project_name, state_dir, log_dir, dispatch_mode)
+                if dispatch_mode == "tmux":
+                    claim_dispatched_task(harness, t["taskId"], run)
+                    write_heartbeat(state_dir, t["taskId"], run["tmuxSession"])
+                dispatched.append(run)
         except Exception as exc:
             errors.append({"taskId": t["taskId"], "error": str(exc)})
 
@@ -375,6 +389,7 @@ def cmd_tick(root: Path, trigger: str = "shell"):
         stale_runs=stale_runs,
         dispatchable_ids=[t["taskId"] for t in latest_dispatchable],
         errors=errors,
+        blocked_routes=blocked_routes,
     )
 
     result = {
@@ -383,24 +398,22 @@ def cmd_tick(root: Path, trigger: str = "shell"):
         "dispatched": dispatched,
         "recoverable": len(recoverable),
         "dispatchable": len(latest_dispatchable),
+        "blocked": blocked_routes,
         "errors": errors,
     }
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0 if not errors else 1
 
 
-def cmd_run(root: Path, task_id: str, trigger: str = "shell"):
+def cmd_run(root: Path, task_id: str, trigger: str = "shell", dispatch_mode: str = "tmux"):
     harness = root / ".harness"
     state_dir = harness / "state"
     log_dir = state_dir / "runner-logs"
     project_name = root.name
 
     task_pool = load_json(harness / "task-pool.json")
-    session_registry_path = harness / "session-registry.json"
-    session_registry = load_json(session_registry_path) if session_registry_path.exists() else {}
-    heartbeats = load_heartbeats(state_dir)
+    route_session_py = state_dir.parent / "scripts" / "route-session.py"
     tasks = task_pool.get("tasks", [])
-    active = find_active_tasks(tasks)
 
     task = None
     for t in tasks:
@@ -411,11 +424,21 @@ def cmd_run(root: Path, task_id: str, trigger: str = "shell"):
         print(json.dumps({"ok": False, "error": f"task not found: {task_id}"}))
         return 1
 
-    session_id = decide_resume_session(task, session_registry, heartbeats, active)
     try:
-        run = dispatch_task(task, session_id, str(root), project_name, state_dir, log_dir)
-        claim_dispatched_task(harness, task_id, run)
-        write_heartbeat(state_dir, task_id, run["tmuxSession"])
+        route_decision = call_route_session(route_session_py, root, task_id)
+        if not route_decision.get("dispatchReady"):
+            print(json.dumps({
+                "ok": False,
+                "taskId": task_id,
+                "gateStatus": route_decision.get("gateStatus"),
+                "gateReason": route_decision.get("gateReason"),
+                "needsOrchestrator": route_decision.get("needsOrchestrator"),
+            }, ensure_ascii=False, indent=2))
+            return 1
+        run = dispatch_task(task, route_decision, str(root), project_name, state_dir, log_dir, dispatch_mode)
+        if dispatch_mode == "tmux":
+            claim_dispatched_task(harness, task_id, run)
+            write_heartbeat(state_dir, task_id, run["tmuxSession"])
         print(json.dumps({"ok": True, "dispatched": run}, ensure_ascii=False, indent=2))
         return 0
     except Exception as exc:
@@ -423,8 +446,8 @@ def cmd_run(root: Path, task_id: str, trigger: str = "shell"):
         return 1
 
 
-def cmd_recover(root: Path, task_id: str, trigger: str = "shell"):
-    return cmd_run(root, task_id, trigger)
+def cmd_recover(root: Path, task_id: str, trigger: str = "shell", dispatch_mode: str = "tmux"):
+    return cmd_run(root, task_id, trigger, dispatch_mode)
 
 
 def cmd_heartbeat(root: Path, task_id: str, tmux_session: str,
@@ -458,16 +481,19 @@ def main():
     p_tick = sub.add_parser("tick", help="reconcile and dispatch")
     p_tick.add_argument("root", help="project root")
     p_tick.add_argument("--trigger", default="shell")
+    p_tick.add_argument("--dispatch-mode", choices=["tmux", "print"], default="tmux")
 
     p_run = sub.add_parser("run", help="force-dispatch a specific task")
     p_run.add_argument("task_id", help="task id")
     p_run.add_argument("root", help="project root")
     p_run.add_argument("--trigger", default="shell")
+    p_run.add_argument("--dispatch-mode", choices=["tmux", "print"], default="tmux")
 
     p_recover = sub.add_parser("recover", help="recover a specific task")
     p_recover.add_argument("task_id", help="task id")
     p_recover.add_argument("root", help="project root")
     p_recover.add_argument("--trigger", default="shell")
+    p_recover.add_argument("--dispatch-mode", choices=["tmux", "print"], default="tmux")
 
     p_list = sub.add_parser("list", help="list runner state and tmux sessions")
     p_list.add_argument("root", help="project root")
@@ -490,11 +516,11 @@ def main():
         return 2
 
     if args.command == "tick":
-        return cmd_tick(root, args.trigger)
+        return cmd_tick(root, args.trigger, args.dispatch_mode)
     elif args.command == "run":
-        return cmd_run(root, args.task_id, args.trigger)
+        return cmd_run(root, args.task_id, args.trigger, args.dispatch_mode)
     elif args.command == "recover":
-        return cmd_recover(root, args.task_id, args.trigger)
+        return cmd_recover(root, args.task_id, args.trigger, args.dispatch_mode)
     elif args.command == "list":
         return cmd_list(root)
     elif args.command == "heartbeat":

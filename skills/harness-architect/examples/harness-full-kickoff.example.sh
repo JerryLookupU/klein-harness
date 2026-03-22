@@ -66,7 +66,7 @@ Suggested full bootstrap prompt for Codex:
    - .harness/session-init.sh
 7. 在 task-pool 里显式区分 orchestrator、worker、audit task，补齐 ownedPaths、dependsOn、verificationRuleIds、resumeStrategy、preferredResumeSessionId、worktreePath、branchName、diffBase。
 8. 默认采用完整执行链：
-   session-init -> gpt-5.4 orchestration -> pre-worker routing -> gpt-5.3-codex worker -> audit worker -> refresh-state -> dashboard/query
+   session-init -> program pre-worker gate -> if needed gpt-5.4 orchestration fallback -> gpt-5.3-codex worker -> audit worker -> refresh-state -> dashboard/query
 9. 产出后明确告诉我：
    - 当前是 bootstrap 还是 refresh
    - 当前最高优先级 work item / task

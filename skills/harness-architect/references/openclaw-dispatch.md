@@ -10,7 +10,7 @@
 
 - `cron` = 调度触发层
 - `tmux` = worker node 层
-- `gpt-5.4` = 编排 / pre-worker session 连接判断 / audit prompt 精化层
+- `gpt-5.4` = 编排 fallback / 语义性 session 判断 / audit prompt 精化层
 - `gpt-5.3-codex` = worker 执行层
 - `codex exec` / `codex exec resume` = 单次执行层
 - `git branch + git worktree` = 代码隔离层
@@ -26,8 +26,8 @@
 2. 主会话 / orchestrator 先写 `.harness/`，再派发命令
 3. `claim.nodeId` 与 `dispatch.targetSelector` 必须能对应到 node
 4. worker 不是自己凭空知道该干什么，它只承接已声明好的执行
-5. 是否 `resume` 旧 session，优先由 `gpt-5.4` 根据任务关系和 session 记录判断，不交给 `gpt-5.3-codex` 自己猜
-6. pre-worker routing 默认先 `resume orchestrationSessionId`，让 `gpt-5.4` 在完整编排上下文里做 session 连接判断
+5. 是否 `resume` 旧 session，优先由程序 gate 根据任务关系和 session 记录做规则内判断，不交给 `gpt-5.3-codex` 自己猜
+6. pre-worker routing 默认先跑程序 gate；只有 gate 判定 `needsOrchestrator=true` 时，才把 routing fallback 交给 `gpt-5.4`
 7. 代码型 worker 默认优先在独立 worktree 中执行，不直接在共享仓库根目录落改动
 
 ## dispatch 最小契约
@@ -108,11 +108,12 @@
 
 ### pre-worker routing
 
-- 先 `resume orchestrationSessionId`
-- 让 `gpt-5.4` 在完整编排上下文里判断当前 task 用 `fresh` 还是 `resume`
+- 先跑 `harness-route-session`
+- 程序 gate 先判断当前 task 是否可 claim，以及当前 task 用 `fresh` 还是 `resume`
 - 如果任务存在多个依赖 session，先生成 `candidateResumeSessionIds`
-- 如果 `resume`，写入 `preferredResumeSessionId`
+- 如果只有一个安全候选且无严重冲突，直接写入 `preferredResumeSessionId`
 - 写入 `sessionFamilyId`、`cacheAffinityKey`、`routingReason`
+- 如果 gate 输出 `needsOrchestrator=true`，再让 `gpt-5.4` 在完整编排上下文里完成 fallback 判断
 - 只有 routing 落盘后，才允许派发 `gpt-5.3-codex`
 
 ### worker run
@@ -132,7 +133,7 @@
 
 ### audit worker run
 
-- 先由 `gpt-5.4` 对当前 audit task 做 routing 和 prompt 精化
+- 先跑程序 gate；只有 gate 输出 `needsOrchestrator=true` 时才由 `gpt-5.4` 对当前 audit task 做 routing fallback 和 prompt 精化
 - 再派发给 `gpt-5.3-codex`
 - 先确认当前 audit task 已写明 `reviewOfTaskIds` 或 `auditScope`
 - 只读取审计范围内的 task、handoff、lineage、verification 结果与相关代码证据
@@ -189,7 +190,7 @@ OpenClaw-cron 在第一版里只做触发，不自行管理恢复策略；它调
 - `harness-status`
   - 输出当前 focus、active task、active summary、blocker、risk
 - `harness-query`
-  - 以 JSON 输出 `overview / progress / current / blueprint / task`
+  - 以 JSON 输出 `overview / progress / current / blueprint / task / feedback`
   - 优先读 `.harness/state/*.json`
   - 给守护进程、面板、其他工具直接取状态
 - `harness-dashboard`
@@ -198,7 +199,7 @@ OpenClaw-cron 在第一版里只做触发，不自行管理恢复策略；它调
 - `harness-runner`
   - 统一执行入口：检查 active run、recoverable run、dispatchable task
   - 把所有上游触发器收束到 `tmux -> codex --yolo exec`
-  - 优先复用已有 session，否则 fresh exec
+  - 先跑程序 pre-worker gate，再决定 resume / fresh / fallback
 - `harness-watch`
   - 自动刷新 status
 - `harness-metrics`
@@ -223,9 +224,10 @@ OpenClaw-cron 在第一版里只做触发，不自行管理恢复策略；它调
 - `harness-resolve-orchestrator`
   - 当 request 出现且 worker 槽位空出来时，生成或认领 orchestrator task
 - `harness-route-session`
-  - 调 `gpt-5.4` 判断当前 task 用 `fresh` 还是 `resume`
-  - 默认先 `resume orchestrationSessionId`
-  - 输出建议的 `preferredResumeSessionId`
+  - 先做程序化 pre-worker gate
+  - 输出 `claimable / blocked / orchestrator_review`
+  - 输出建议的 `resumeStrategy`、`preferredResumeSessionId`、`promptStages`
+  - 只有在 `needsOrchestrator=true` 时才回退到 `gpt-5.4`
 - `harness-run-audit`
   - 认领下一个可执行 audit task
   - 先调 `gpt-5.4` 生成审计 prompt
@@ -236,7 +238,7 @@ OpenClaw-cron 在第一版里只做触发，不自行管理恢复策略；它调
 
 DO NOT 在以下动作之前投递命令：
 
-- `gpt-5.4` 已完成 pre-worker session routing
+- 程序 pre-worker gate 已完成
 - claim 已写入
 - dispatch 已写入
 - handoff 已写入
@@ -264,12 +266,13 @@ DO NOT 在以下动作之前投递命令：
 按下面顺序执行：
 1. 读取 `.harness/progress.md`、`.harness/task-pool.json`、`.harness/session-registry.json`。
 2. 找到 `<TASK_ID>`。
-3. 读取 `resumeStrategy`、`preferredResumeSessionId`、`candidateResumeSessionIds`、`worktreePath`、`diffBase`。
-4. 写 claim，claim 中写入当前 nodeId=`<NODE_ID>`。
-5. 把实际使用的 session 写入 `claim.boundSessionId`。
-6. 在 `worktreePath` 中实现。
-7. 先写 `diffSummary`，再验证。
-8. 回写 `.harness/task-pool.json`、`.harness/progress.md`、`.harness/lineage.jsonl`、`.harness/session-registry.json`。
+3. 如果存在 `.harness/state/feedback-summary.json`，只读取当前 task 最近 3 条高严重度失败。
+4. 读取 `resumeStrategy`、`preferredResumeSessionId`、`candidateResumeSessionIds`、`worktreePath`、`diffBase`。
+5. 写 claim，claim 中写入当前 nodeId=`<NODE_ID>`。
+6. 把实际使用的 session 写入 `claim.boundSessionId`。
+7. 在 `worktreePath` 中实现。
+8. 先写 `diffSummary`，再验证。
+9. 回写 `.harness/task-pool.json`、`.harness/progress.md`、`.harness/lineage.jsonl`、`.harness/session-registry.json`。
 
 如果依赖未满足、路径冲突、需要 rollback、需要 stop 其他 task、或路径边界不清：
 1. 写 request。
@@ -317,10 +320,10 @@ DO NOT 在以下动作之前投递命令：
 
 你只负责：
 1. 维护 `orchestrationSessionId`
-2. 做 pre-worker routing
+2. 只在程序 gate 判定 `needsOrchestrator=true` 时做 routing fallback
 3. 生成给 `gpt-5.3-codex` 的 worker prompt
 
-先读取 `.harness/progress.md`、`.harness/work-items.json`、`.harness/task-pool.json`、`.harness/spec.json`、`.harness/standards.md`、`.harness/session-registry.json`。
+先读取 `.harness/progress.md`、`.harness/work-items.json`、`.harness/task-pool.json`、`.harness/spec.json`、`.harness/standards.md`、`.harness/session-registry.json`、`.harness/state/feedback-summary.json`（如果存在）。
 
 对每个待派发 task，至少写回：
 - `orchestrationSessionId`
@@ -332,9 +335,11 @@ DO NOT 在以下动作之前投递命令：
 - `routingReason`
 
 规则：
+- 程序 gate 已先做一轮 claimable / conflict / feedback 检查
 - 同 parent、同冲突域、同角色、直接后续 => 优先 `resume`
 - 跨 parent、角色切换、replan 后、旧 session 污染重 => 优先 `fresh`
 - 不允许多个 worker 同时 `resume` 同一个 active session
+- 最近失败窗口命中 `illegal_action` / `path_conflict` / `session_conflict` 时，优先 review / replan，不直接续跑
 
 没写完 routing 字段前，不要放行 worker。
 ```
@@ -347,7 +352,9 @@ DO NOT 在以下动作之前投递命令：
 编排模型: gpt-5.4
 执行模型: gpt-5.3-codex
 编排主线 session: <ORCHESTRATION_SESSION_ID>
-pre-worker routing: 先 `codex exec resume <ORCHESTRATION_SESSION_ID> -m gpt-5.4 ...`
+pre-worker gate: 先跑 `harness-route-session <TASK_ID> .`
+如果 gate 输出 `needsOrchestrator=true`:
+  再 `codex exec resume <ORCHESTRATION_SESSION_ID> -m gpt-5.4 ...`
 如果 `resumeStrategy=fresh`:
   标准启动方式: codex exec --yolo -m gpt-5.3-codex "<WORKER_PROMPT>"
   本机兼容写法: codex --yolo exec -m gpt-5.3-codex "<WORKER_PROMPT>"
@@ -359,7 +366,7 @@ pre-worker routing: 先 `codex exec resume <ORCHESTRATION_SESSION_ID> -m gpt-5.4
 
 如果目标任务 `kind=audit`：
 
-- 先 `codex exec resume <ORCHESTRATION_SESSION_ID> -m gpt-5.4 ...` 生成精确 audit worker prompt
+- 先跑程序 gate；只有 gate 输出 `needsOrchestrator=true` 时，才 `codex exec resume <ORCHESTRATION_SESSION_ID> -m gpt-5.4 ...` 生成精确 audit worker prompt
 - 再用 `gpt-5.3-codex` 执行
 - `entryRole = worker`
 - `workerMode = audit`

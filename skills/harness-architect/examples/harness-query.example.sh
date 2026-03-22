@@ -2,7 +2,7 @@
 set -euo pipefail
 
 if [ "$#" -lt 2 ]; then
-  echo "usage: $0 <overview|progress|current|blueprint|task> <ROOT> [TASK_ID] [--text]" >&2
+  echo "usage: $0 <overview|progress|current|blueprint|task|feedback> <ROOT> [TASK_ID] [--text]" >&2
   exit 1
 fi
 

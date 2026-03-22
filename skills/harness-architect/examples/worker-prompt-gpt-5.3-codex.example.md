@@ -23,8 +23,16 @@
    - `.harness/progress.md`
    - `.harness/task-pool.json`
    - `.harness/session-registry.json`
+   - `.harness/state/feedback-summary.json`（如果存在）
 2. 找到当前 task。
-3. 读取当前 task 的这些字段：
+3. 只读取当前 task 最近 3 条 `severity >= error` 的失败反馈；不要扫描整份历史。
+4. 如果最近失败里包含：
+   - `illegal_action`
+   - `path_conflict`
+   - `session_conflict`
+   - `replan_required`
+   先停止写代码，先判断是否写 request。
+5. 读取当前 task 的这些字段：
    - `title`
    - `summary`
    - `description`
@@ -35,10 +43,10 @@
    - `candidateResumeSessionIds`
    - `worktreePath`
    - `diffBase`
-4. 只在 `worktreePath` 中修改 `ownedPaths` 内的文件。
-5. 先写 `diffSummary`。
-6. 按 `verificationRuleIds` 做验证。
-7. 回写状态。
+6. 只在 `worktreePath` 中修改 `ownedPaths` 内的文件。
+7. 先写 `diffSummary`。
+8. 按 `verificationRuleIds` 做验证。
+9. 回写状态。
 
 如果当前 task 已声明：
 
@@ -63,6 +71,8 @@ claim 当前任务时，必须回写：
 - 需要 stop 其他 task
 - `ownedPaths` 不清楚
 - 依赖未满足
+- 最近失败窗口里已出现 `illegal_action`
+- 最近失败窗口里已出现 `session_conflict`
 
 如果出现上面任一条件，按下面顺序执行：
 

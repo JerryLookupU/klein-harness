@@ -51,6 +51,7 @@
 - `verificationRuleIds`
 - `resumeStrategy`
 - `preferredResumeSessionId`
+- 当前 task 最近 3 条高严重度失败反馈
 
 目标：
 

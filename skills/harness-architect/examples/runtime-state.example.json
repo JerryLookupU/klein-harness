@@ -19,5 +19,79 @@
       "branchName": "task/T-001-replan-deep-archive",
       "worktreePath": ".worktrees/T-001-replan-deep-archive"
     }
-  ]
+  ],
+  "activeRunnerCount": 1,
+  "recoverableTaskCount": 1,
+  "staleRunnerCount": 0,
+  "blockedRouteCount": 1,
+  "verifiedTaskCount": 8,
+  "failingVerificationCount": 1,
+  "feedbackEventCount": 4,
+  "feedbackErrorCount": 3,
+  "feedbackCriticalCount": 1,
+  "illegalActionCount": 1,
+  "tasksWithRecentFailures": [
+    "T-002"
+  ],
+  "recentFailures": [
+    {
+      "id": "FB-00014",
+      "taskId": "T-002",
+      "sessionId": "019d0b19-e0c1-7613-a18e-33380b167c90",
+      "role": "worker",
+      "workerMode": "execution",
+      "feedbackType": "verification_failure",
+      "severity": "error",
+      "source": "verification",
+      "step": "verify",
+      "triggeringAction": "harness-verify-task",
+      "message": "Delta detection still reprocessed unchanged archive rows.",
+      "timestamp": "2026-03-21T20:55:00+08:00"
+    },
+    {
+      "id": "FB-00015",
+      "taskId": "T-002",
+      "sessionId": "019d0b19-e0c1-7613-a18e-33380b167c90",
+      "role": "worker",
+      "workerMode": "execution",
+      "feedbackType": "path_conflict",
+      "severity": "error",
+      "source": "worker",
+      "step": "edit",
+      "triggeringAction": "edited src/sync.ts outside ownedPaths",
+      "message": "Worker touched src/sync.ts but task T-002 only owns src/archive/**.",
+      "timestamp": "2026-03-21T20:58:00+08:00"
+    },
+    {
+      "id": "FB-00016",
+      "taskId": "T-002",
+      "sessionId": "019d0b19-e0c1-7613-a18e-33380b167c90",
+      "role": "worker",
+      "workerMode": "execution",
+      "feedbackType": "illegal_action",
+      "severity": "critical",
+      "source": "worker",
+      "step": "verify",
+      "triggeringAction": "expanded ownedPaths without routing approval",
+      "message": "Worker attempted to widen ownedPaths instead of requesting replan.",
+      "timestamp": "2026-03-21T20:59:00+08:00"
+    }
+  ],
+  "activeRuns": [
+    {
+      "taskId": "T-001",
+      "nodeId": "tmux:orch-1",
+      "startedAt": "2026-03-21T20:45:00+08:00"
+    }
+  ],
+  "recoverableRuns": [
+    {
+      "taskId": "T-002",
+      "nodeId": "tmux:worker-2",
+      "lastHeartbeatAt": "2026-03-21T20:59:00+08:00"
+    }
+  ],
+  "staleRuns": [],
+  "lastTickAt": "2026-03-21T21:10:00+08:00",
+  "lastTrigger": "daemon"
 }

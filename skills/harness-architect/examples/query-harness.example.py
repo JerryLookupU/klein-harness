@@ -44,7 +44,14 @@ def find_task(tasks, task_id: str):
     raise KeyError(f"task not found: {task_id}")
 
 
-def make_overview(progress, tasks, work_items, features, session_registry, runtime_state=None):
+def recent_task_failures(feedback_summary, task_id: str):
+    if not feedback_summary or not task_id:
+        return []
+    by_task = feedback_summary.get("taskFeedbackSummary", {})
+    return by_task.get(task_id, {}).get("recentFailures", [])
+
+
+def make_overview(progress, tasks, work_items, features, session_registry, runtime_state=None, feedback_summary=None):
     active = active_tasks(tasks)
     return {
         "mode": progress.get("mode"),
@@ -63,11 +70,16 @@ def make_overview(progress, tasks, work_items, features, session_registry, runti
         "activeRunnerCount": (runtime_state or {}).get("activeRunnerCount", 0),
         "recoverableTaskCount": (runtime_state or {}).get("recoverableTaskCount", 0),
         "staleRunnerCount": (runtime_state or {}).get("staleRunnerCount", 0),
+        "blockedRouteCount": (runtime_state or {}).get("blockedRouteCount", 0),
         "orchestrationSessionId": (runtime_state or {}).get("orchestrationSessionId", session_registry.get("orchestrationSessionId")),
+        "feedbackEventCount": (runtime_state or {}).get("feedbackEventCount", (feedback_summary or {}).get("feedbackEventCount", 0)),
+        "feedbackErrorCount": (runtime_state or {}).get("feedbackErrorCount", (feedback_summary or {}).get("errorCount", 0)),
+        "illegalActionCount": (runtime_state or {}).get("illegalActionCount", (feedback_summary or {}).get("illegalActionCount", 0)),
+        "tasksWithRecentFailures": (runtime_state or {}).get("tasksWithRecentFailures", (feedback_summary or {}).get("tasksWithRecentFailures", [])),
     }
 
 
-def make_progress(progress, tasks, work_items, features):
+def make_progress(progress, tasks, work_items, features, feedback_summary=None):
     return {
         "mode": progress.get("mode"),
         "planningStage": progress.get("planningStage"),
@@ -78,10 +90,11 @@ def make_progress(progress, tasks, work_items, features):
         "workItemStatusCounts": dict(Counter(item.get("status", "unknown") for item in work_items)),
         "featureStatusCounts": summarize_features(features),
         "claimSummary": progress.get("claimSummary", {}),
+        "recentFailures": (feedback_summary or {}).get("recentFailures", []),
     }
 
 
-def make_current(progress, tasks, session_registry):
+def make_current(progress, tasks, session_registry, feedback_summary=None):
     active = active_tasks(tasks)
     current = []
     for task in active:
@@ -97,6 +110,7 @@ def make_current(progress, tasks, session_registry):
                 "boundSessionId": task.get("claim", {}).get("boundSessionId"),
                 "worktreePath": task.get("worktreePath"),
                 "branchName": task.get("branchName"),
+                "recentFailures": recent_task_failures(feedback_summary, task.get("taskId")),
             }
         )
     return {
@@ -134,7 +148,7 @@ def make_blueprint(spec, task_pool, work_items, tasks):
     }
 
 
-def make_task_view(task):
+def make_task_view(task, feedback_summary=None):
     return {
         "taskId": task.get("taskId"),
         "kind": task.get("kind"),
@@ -159,6 +173,36 @@ def make_task_view(task):
         "verificationResultPath": task.get("verificationResultPath"),
         "claim": task.get("claim", {}),
         "handoff": task.get("handoff", {}),
+        "recentFailures": recent_task_failures(feedback_summary, task.get("taskId")),
+    }
+
+
+def make_feedback_view(feedback_summary, task_id=None):
+    if not feedback_summary:
+        return {
+            "feedbackEventCount": 0,
+            "errorCount": 0,
+            "criticalCount": 0,
+            "illegalActionCount": 0,
+            "recentFailures": [],
+            "taskFeedbackSummary": {},
+        }
+
+    if task_id:
+        task_summary = feedback_summary.get("taskFeedbackSummary", {}).get(task_id)
+        if not task_summary:
+            raise KeyError(f"feedback not found for task: {task_id}")
+        return task_summary
+
+    return {
+        "feedbackEventCount": feedback_summary.get("feedbackEventCount", 0),
+        "errorCount": feedback_summary.get("errorCount", 0),
+        "criticalCount": feedback_summary.get("criticalCount", 0),
+        "illegalActionCount": feedback_summary.get("illegalActionCount", 0),
+        "tasksWithRecentFailures": feedback_summary.get("tasksWithRecentFailures", []),
+        "recentFailures": feedback_summary.get("recentFailures", []),
+        "byType": feedback_summary.get("byType", {}),
+        "bySeverity": feedback_summary.get("bySeverity", {}),
     }
 
 
@@ -174,6 +218,9 @@ def format_text(view, payload):
             f"activeTaskCount: {payload.get('activeTaskCount')}",
             f"activeRunners: {payload.get('activeRunnerCount', 0)}",
             f"recoverableTasks: {payload.get('recoverableTaskCount', 0)}",
+            f"blockedRoutes: {payload.get('blockedRouteCount', 0)}",
+            f"feedbackErrors: {payload.get('feedbackErrorCount', 0)}",
+            f"illegalActions: {payload.get('illegalActionCount', 0)}",
         ]
         return "\n".join(lines)
     if view == "progress":
@@ -185,6 +232,7 @@ def format_text(view, payload):
                 f"taskStatusCounts: {payload.get('taskStatusCounts')}",
                 f"workItemStatusCounts: {payload.get('workItemStatusCounts')}",
                 f"featureStatusCounts: {payload.get('featureStatusCounts')}",
+                f"recentFailures: {len(payload.get('recentFailures', []))}",
             ]
         )
     if view == "current":
@@ -196,6 +244,8 @@ def format_text(view, payload):
         ]
         for item in payload.get("activeTasks", []):
             lines.append(f"- {item['taskId']} [{item['kind']}] {item['title']} @ {item.get('nodeId')}")
+            for failure in item.get("recentFailures", []):
+                lines.append(f"  recentFailure: {failure.get('feedbackType')} {failure.get('message')}")
         return "\n".join(lines)
     if view == "blueprint":
         lines = [
@@ -208,34 +258,61 @@ def format_text(view, payload):
             lines.append(f"- {block_id} {block['title']} status={block['status']} tasks={block['taskIds']}")
         return "\n".join(lines)
     if view == "task":
-        return "\n".join(
-            [
+        lines = [
+            f"taskId: {payload.get('taskId')}",
+            f"kind: {payload.get('kind')}",
+            f"roleHint: {payload.get('roleHint')}",
+            f"workerMode: {payload.get('workerMode')}",
+            f"title: {payload.get('title')}",
+            f"summary: {payload.get('summary')}",
+            f"status: {payload.get('status')}",
+            f"planningStage: {payload.get('planningStage')}",
+            f"nodeId: {payload.get('claim', {}).get('nodeId')}",
+            f"boundSessionId: {payload.get('claim', {}).get('boundSessionId')}",
+            f"branchName: {payload.get('branchName')}",
+            f"worktreePath: {payload.get('worktreePath')}",
+            f"diffBase: {payload.get('diffBase')}",
+            f"diffSummary: {payload.get('diffSummary')}",
+            f"verificationStatus: {payload.get('verificationStatus')}",
+            f"verificationSummary: {payload.get('verificationSummary')}",
+            f"verificationResultPath: {payload.get('verificationResultPath')}",
+        ]
+        for failure in payload.get("recentFailures", []):
+            lines.append(f"recentFailure: {failure.get('feedbackType')} [{failure.get('severity')}] {failure.get('message')}")
+        return "\n".join(lines)
+    if view == "feedback":
+        if "taskId" in payload:
+            lines = [
                 f"taskId: {payload.get('taskId')}",
-                f"kind: {payload.get('kind')}",
-                f"roleHint: {payload.get('roleHint')}",
-                f"workerMode: {payload.get('workerMode')}",
-                f"title: {payload.get('title')}",
-                f"summary: {payload.get('summary')}",
-                f"status: {payload.get('status')}",
-                f"planningStage: {payload.get('planningStage')}",
-                f"nodeId: {payload.get('claim', {}).get('nodeId')}",
-                f"boundSessionId: {payload.get('claim', {}).get('boundSessionId')}",
-                f"branchName: {payload.get('branchName')}",
-                f"worktreePath: {payload.get('worktreePath')}",
-                f"diffBase: {payload.get('diffBase')}",
-                f"diffSummary: {payload.get('diffSummary')}",
-                f"verificationStatus: {payload.get('verificationStatus')}",
-                f"verificationSummary: {payload.get('verificationSummary')}",
-                f"verificationResultPath: {payload.get('verificationResultPath')}",
+                f"feedbackCount: {payload.get('feedbackCount', 0)}",
+                f"errorCount: {payload.get('errorCount', 0)}",
+                f"criticalCount: {payload.get('criticalCount', 0)}",
+                f"latestFeedbackType: {payload.get('latestFeedbackType')}",
+                f"latestSeverity: {payload.get('latestSeverity')}",
+                f"latestMessage: {payload.get('latestMessage')}",
             ]
-        )
+            for failure in payload.get("recentFailures", []):
+                lines.append(f"- {failure.get('feedbackType')} [{failure.get('severity')}] {failure.get('message')}")
+            return "\n".join(lines)
+        lines = [
+            f"feedbackEventCount: {payload.get('feedbackEventCount', 0)}",
+            f"errorCount: {payload.get('errorCount', 0)}",
+            f"criticalCount: {payload.get('criticalCount', 0)}",
+            f"illegalActionCount: {payload.get('illegalActionCount', 0)}",
+            f"tasksWithRecentFailures: {payload.get('tasksWithRecentFailures', [])}",
+        ]
+        for failure in payload.get("recentFailures", []):
+            lines.append(
+                f"- {failure.get('taskId')} {failure.get('feedbackType')} [{failure.get('severity')}] {failure.get('message')}"
+            )
+        return "\n".join(lines)
     return json.dumps(payload, ensure_ascii=False, indent=2)
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", required=True)
-    parser.add_argument("--view", required=True, choices=["overview", "progress", "current", "blueprint", "task"])
+    parser.add_argument("--view", required=True, choices=["overview", "progress", "current", "blueprint", "task", "feedback"])
     parser.add_argument("--task-id")
     parser.add_argument("--format", default="json", choices=["json", "text"])
     args = parser.parse_args()
@@ -246,6 +323,7 @@ def main():
     current_state = load_optional_json(state_dir / "current.json")
     runtime_state = load_optional_json(state_dir / "runtime.json")
     blueprint_state = load_optional_json(state_dir / "blueprint-index.json")
+    feedback_summary = load_optional_json(state_dir / "feedback-summary.json")
 
     progress = current_state or load_progress(harness / "progress.md")
     task_pool = load_json(harness / "task-pool.json")
@@ -261,11 +339,11 @@ def main():
 
     if args.view == "overview":
         if current_state and runtime_state:
-            payload = make_overview(progress, tasks, items, feature_items, session_registry, runtime_state)
+            payload = make_overview(progress, tasks, items, feature_items, session_registry, runtime_state, feedback_summary)
         else:
-            payload = make_overview(progress, tasks, items, feature_items, session_registry)
+            payload = make_overview(progress, tasks, items, feature_items, session_registry, None, feedback_summary)
     elif args.view == "progress":
-        payload = make_progress(progress, tasks, items, feature_items)
+        payload = make_progress(progress, tasks, items, feature_items, feedback_summary)
     elif args.view == "current":
         if current_state and runtime_state:
             payload = {
@@ -278,11 +356,13 @@ def main():
                 "orchestrationSessionId": runtime_state.get("orchestrationSessionId"),
             }
         else:
-            payload = make_current(progress, tasks, session_registry)
+            payload = make_current(progress, tasks, session_registry, feedback_summary)
     elif args.view == "task":
         if not args.task_id:
             raise ValueError("--task-id is required for view=task")
-        payload = make_task_view(find_task(tasks, args.task_id))
+        payload = make_task_view(find_task(tasks, args.task_id), feedback_summary)
+    elif args.view == "feedback":
+        payload = make_feedback_view(feedback_summary, args.task_id)
     else:
         payload = blueprint_state or make_blueprint(spec, task_pool, items, tasks)
 

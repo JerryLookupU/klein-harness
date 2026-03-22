@@ -198,6 +198,7 @@ allowed-tools: ["Bash", "Read", "Write", "Edit", "Glob", "Grep"]
 - `harness-query` -> `examples/harness-query.example.sh`
 - `harness-dashboard` -> `examples/harness-dashboard.example.sh`
 - `harness-install-tools` -> `examples/harness-install-tools.example.sh`
+- `release smoke` -> `examples/harness-release-smoke.example.sh`
 - `harness-route-session` -> `examples/harness-route-session.example.sh`
 - `harness-prepare-worktree` -> `examples/harness-prepare-worktree.example.sh`
 - `harness-diff-summary` -> `examples/harness-diff-summary.example.sh`
@@ -210,10 +211,12 @@ allowed-tools: ["Bash", "Read", "Write", "Edit", "Glob", "Grep"]
 - `.harness/scripts/diff-summary.py` -> `examples/diff-summary.example.py`
 - `lineage.jsonl` -> `examples/lineage.example.jsonl`
 - `drift-log/*.jsonl` -> `examples/drift-log.example.jsonl`
+- `feedback-log.jsonl` -> `examples/feedback-log.example.jsonl`
 - `tooling-manifest.json` -> `examples/tooling-manifest.example.json`
 - `session-init.sh` -> `examples/session-init.example.sh`
 - `audit-report.md` -> `examples/audit-report.example.md`
 - `audit worker prompt (gpt-5.3-codex)` -> `examples/audit-worker-prompt-gpt-5.3-codex.example.md`
+- `state/feedback-summary.json` -> `examples/feedback-summary.example.json`
 
 # Agent 进场顺序
 
@@ -748,12 +751,13 @@ DO NOT 先发命令再补状态。
 
 然后再投递执行命令。
 
-## Gate 4.5: pre-worker session 连接先由 `gpt-5.4` 完成
+## Gate 4.5: pre-worker session 连接先过程序 gate，再决定是否回退给 `gpt-5.4`
 
 任何普通 worker 真正启动前，必须先经过一次 pre-worker routing。
 
-这一步默认由 `gpt-5.4` 完成，至少要决定：
+这一步默认由程序 gate 完成，至少要决定：
 
+- 当前 task 是否可 claim
 - 当前 task 用 `fresh` 还是 `resume`
 - 如果 `resume`，连接哪个 `sessionId`
 - 当前 task 的 `sessionFamilyId`
@@ -768,7 +772,8 @@ DO NOT 先发命令再补状态。
 一句话：
 
 - pre-worker 先连 session
-- session 连接先过 `gpt-5.4`
+- session 连接先过程序 gate
+- gate 判定语义不清或冲突高时再回退给 `gpt-5.4`
 - 然后才允许 `gpt-5.3-codex` 开工
 
 ## Gate 5: `worker` 不得擅自改编排文件

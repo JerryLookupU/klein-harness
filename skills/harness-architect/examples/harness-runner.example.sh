@@ -6,9 +6,9 @@ if [ "$#" -lt 2 ]; then
 usage: harness-runner <tick|run|recover|attach|list> [args...]
 
 commands:
-  tick <ROOT> [--trigger shell]
-  run <TASK_ID> <ROOT> [--trigger shell]
-  recover <TASK_ID> <ROOT> [--trigger shell]
+  tick <ROOT> [--trigger shell] [--dispatch-mode tmux|print]
+  run <TASK_ID> <ROOT> [--trigger shell] [--dispatch-mode tmux|print]
+  recover <TASK_ID> <ROOT> [--trigger shell] [--dispatch-mode tmux|print]
   attach <TASK_ID> <ROOT>
   list <ROOT>
 EOF

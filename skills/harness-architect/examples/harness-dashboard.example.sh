@@ -51,6 +51,10 @@ render_once() {
   "$QUERY_SH" progress "$ROOT" --text
   echo
 
+  echo "-- Feedback --"
+  "$QUERY_SH" feedback "$ROOT" --text
+  echo
+
   echo "-- Blueprint --"
   "$QUERY_SH" blueprint "$ROOT" --text
   echo
