@@ -7,7 +7,8 @@ usage: harness-bootstrap <ROOT> <GOAL> [STACK_HINT] [kick options...]
 
 Examples:
   harness-bootstrap /repo "分析这个代码库"
-  harness-bootstrap /repo "根据 PRD 生成代码" "Next.js + Prisma" --context docs/prd.md --daemon
+  harness-bootstrap /repo "根据 PRD 生成代码" "Next.js + Prisma" --context docs/prd.md
+  harness-bootstrap /repo "根据 PRD 生成代码" "Next.js + Prisma" --context docs/prd.md --no-daemon
 EOF
 }
 

@@ -10,11 +10,12 @@ options:
   --auto-bootstrap          force running `codex exec` bootstrap after install
   --replace-bootstrap       stop an existing bootstrap tmux session for this project before starting a new one
   --no-session-init         skip automatic session-init after bootstrap
+  --no-daemon               do not start the runner daemon after bootstrap
   --context <PATH>          attach an extra context file or directory
   --prd <PATH>              alias of --context
   --model <MODEL>           pass model to `codex exec`
   --concurrency <N>         write a worker parallelism preference into the prompt
-  --daemon                  after bootstrap, launch a runner daemon tmux session
+  --daemon                  explicitly enable the runner daemon after bootstrap
   --daemon-interval <N>     runner daemon tick interval in seconds (default: 60)
   -h, --help                show this help
 
@@ -32,7 +33,7 @@ AUTO_BOOTSTRAP=1
 RUN_SESSION_INIT=1
 MODEL=""
 CONCURRENCY=""
-RUN_DAEMON=0
+RUN_DAEMON=1
 DAEMON_INTERVAL=60
 REPLACE_BOOTSTRAP=0
 CONTEXT_INPUTS=()
@@ -53,6 +54,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --no-session-init)
       RUN_SESSION_INIT=0
+      shift
+      ;;
+    --no-daemon)
+      RUN_DAEMON=0
       shift
       ;;
     --context|--prd)
@@ -328,6 +333,9 @@ launch_bootstrap_in_tmux() {
   local refresh_literal=""
   local session_init_literal=""
   local status_literal=""
+  local runner_literal=""
+  local runner_daemon_session_literal=""
+  local runner_daemon_log_literal=""
   local codex_cmd_literal=""
   local session_name_literal=""
 
@@ -342,6 +350,9 @@ launch_bootstrap_in_tmux() {
   refresh_literal="$(printf '%q' "$PROJECT_ROOT/.harness/scripts/refresh-state.py")"
   session_init_literal="$(printf '%q' "$PROJECT_ROOT/.harness/session-init.sh")"
   status_literal="$(printf '%q' "$PROJECT_ROOT/.harness/bin/harness-status")"
+  runner_literal="$(printf '%q' "$PROJECT_ROOT/.harness/bin/harness-runner")"
+  runner_daemon_session_literal="$(printf '%q' "$RUNNER_DAEMON_SESSION_PATH")"
+  runner_daemon_log_literal="$(printf '%q' "$RUNNER_DAEMON_STDOUT_PATH")"
   codex_cmd_literal="$(printf '%q ' "${CODEX_CMD[@]}")"
   session_name_literal="$(printf '%q' "$session_name")"
 
@@ -361,7 +372,12 @@ PROMPT_PATH=$prompt_literal
 BOOTSTRAP_RESULT_PATH=$result_literal
 BOOTSTRAP_STDOUT_PATH=$stdout_literal
 RUN_SESSION_INIT=$RUN_SESSION_INIT
+RUN_DAEMON=$RUN_DAEMON
+DAEMON_INTERVAL=$DAEMON_INTERVAL
 CODEX_CMD=($codex_cmd_literal)
+RUNNER_BIN=$runner_literal
+RUNNER_DAEMON_SESSION_PATH=$runner_daemon_session_literal
+RUNNER_DAEMON_LOG_PATH=$runner_daemon_log_literal
 
 update_project_meta() {
   python3 - "\$PROJECT_META_PATH" "\$PROJECT_ROOT" "\$1" "\$2" "\${3:-}" <<'PY'
@@ -435,6 +451,19 @@ fi
 if [[ -x $status_literal ]]; then
   echo "[bootstrap] current status:"
   $status_literal "\$PROJECT_ROOT" || true
+fi
+
+if [[ "\$RUN_DAEMON" -eq 1 && -x "\$RUNNER_BIN" ]]; then
+  echo "[bootstrap] launching runner daemon..."
+  if "\$RUNNER_BIN" daemon "\$PROJECT_ROOT" --interval "\$DAEMON_INTERVAL" --replace >/dev/null; then
+    echo "[bootstrap] runner daemon interval: \${DAEMON_INTERVAL}s"
+    if [[ -f "\$RUNNER_DAEMON_SESSION_PATH" ]]; then
+      echo "[bootstrap] runner daemon session: \$(head -n 1 "\$RUNNER_DAEMON_SESSION_PATH" 2>/dev/null || true)"
+    fi
+    echo "[bootstrap] runner daemon log: \$RUNNER_DAEMON_LOG_PATH"
+  else
+    echo "[bootstrap] failed to launch runner daemon"
+  fi
 fi
 
 update_project_meta "active" "ready" ""
@@ -710,13 +739,9 @@ EOF
     echo "tmux session: $LAUNCHED_BOOTSTRAP_TMUX_SESSION"
     echo "bootstrap log: $BOOTSTRAP_STDOUT_PATH"
     if [[ "$RUN_DAEMON" -eq 1 ]]; then
-      if launch_runner_daemon_in_tmux; then
-        echo "runner daemon session: $(head -n 1 "$RUNNER_DAEMON_SESSION_PATH" 2>/dev/null || true)"
-        echo "runner daemon interval: ${DAEMON_INTERVAL}s"
-        echo "runner daemon log: $RUNNER_DAEMON_STDOUT_PATH"
-      else
-        echo "failed to launch runner daemon session" >&2
-      fi
+      echo "runner daemon: will auto-start after bootstrap completes"
+      echo "runner daemon interval: ${DAEMON_INTERVAL}s"
+      echo "runner daemon log: $RUNNER_DAEMON_STDOUT_PATH"
     fi
   else
     echo

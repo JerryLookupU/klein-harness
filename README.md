@@ -77,8 +77,10 @@ harness-init /path/to/project
 Bootstrap the first orchestration round:
 
 ```bash
-harness-bootstrap /path/to/project "根据 PRD 生成代码" "React + Vite" --context docs/prd.md --daemon
+harness-bootstrap /path/to/project "根据 PRD 生成代码" "React + Vite" --context docs/prd.md
 ```
+
+By default, `harness-bootstrap` auto-starts the runner daemon after bootstrap completes. Use `--no-daemon` to opt out.
 
 Submit incremental work:
 
@@ -179,6 +181,8 @@ Notes:
 - `--dispatch-mode tmux` is the default real dispatch mode
 - `--dispatch-mode print` writes route and dispatch evidence without starting `tmux`
 - `harness-runner daemon` keeps ticking and refreshing hot state on a fixed interval
+- `harness-bootstrap` / `harness-kick` start the runner daemon by default after bootstrap success
+- use `--no-daemon` when you want a manual or fully operator-driven session
 
 ## One-Command Demo
 
