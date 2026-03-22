@@ -281,7 +281,6 @@ report = json.load(open(sys.argv[6]))
 
 assert reconcile["bound"], "request should bind to at least one task"
 assert reconcile["bound"][0]["requestId"] == request_id
-assert run_payload["dispatched"][0 if isinstance(run_payload.get("dispatched"), list) else None] if False else True
 
 dispatched = run_payload["dispatched"]
 assert dispatched["taskId"] == "T-100"

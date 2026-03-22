@@ -1,8 +1,9 @@
-# harness-architect
+# Klein-Harness
 
 ## 中文
 
-`harness-architect` 是一套用于建立和维护 `.harness/` 协作系统的 skill 与模板仓库。
+`Klein-Harness` 是一套用于建立和维护 `.harness/` 协作系统的 skill 与模板仓库。
+当前仓库路径和技能目录仍保留 `harness-architect` 命名，以维持现有 CLI、安装路径和引用兼容。
 
 当前版本主要面向 `Codex` 工作流，默认采用以下模型与命令约定：
 
@@ -53,7 +54,13 @@
 - runtime 会把 request 绑定到 task，并把状态推进到 `bound / dispatched / running / verified / completed`
 - `lineage.jsonl` 与 `state/lineage-index.json` 会把 `request -> task -> session -> worktree -> verification -> outcome` 串起来
 - `state/current.json`、`state/runtime.json`、`state/request-summary.json`、`state/lineage-index.json` 是人类 / operator / agent / runtime 共用的热路径
-- runtime 发现失败、阻塞、审计需求后，会把 `replan / stop / audit` follow-up request 重新写回 repo-local request queue
+- runtime 发现失败、阻塞、审计需求后，会把 `replan / stop / audit` follow-up request 重新写回 repo-local request queue，并同步维护 `{kind}-requests.json` snapshot
+
+这也是当前 harness 的明确特性，而不是文档概念：
+
+- 请求是可重入的，report / failure / audit 结果都能成为下一轮 request
+- session、worktree、verification、outcome 都有 repo-local 谱系，不依赖“记住上次 prompt”
+- apparent self-intersection 通过 request lineage、session lineage、worktree isolation 和 verification state 显式拆维
 
 ### 快速部署
 
@@ -463,7 +470,8 @@ session-init
 
 ## English
 
-`harness-architect` is a skill and template repository for building and maintaining a `.harness/` coordination system.
+`Klein-Harness` is a skill and template repository for building and maintaining a `.harness/` coordination system.
+The repository path and installed skill directory still keep the `harness-architect` name for compatibility with existing commands and references.
 
 The current version is primarily designed for `Codex` workflows, with the following default model and command assumptions:
 

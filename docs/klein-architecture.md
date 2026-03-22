@@ -123,6 +123,7 @@ Those follow-ups are:
 
 - appended to `.harness/requests/queue.jsonl`
 - indexed in `.harness/state/request-index.json`
+- mirrored into `{kind}-requests.json` snapshots such as `audit-requests.json`, `replan-requests.json`, and `stop-requests.json`
 - visible in `.harness/state/request-summary.json`
 - connected through `.harness/lineage.jsonl`
 

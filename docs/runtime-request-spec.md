@@ -178,6 +178,7 @@ These follow-up requests:
 
 - are appended to `.harness/requests/queue.jsonl`
 - appear in `request-index.json`
+- update `{kind}-requests.json` snapshots such as `audit-requests.json`, `replan-requests.json`, and `stop-requests.json`
 - get lineage events in `.harness/lineage.jsonl`
 - remain scriptable and repo-local
 
