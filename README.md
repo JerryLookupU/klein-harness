@@ -45,6 +45,16 @@
 4. `session / worktree / diff / audit` 的闭环
 5. 面向人类与工具的 operator / query 界面
 
+### Klein 闭环
+
+当前实现已经从“phase-1 request intake toolkit”升级为 Klein 风格闭环运行时，同时保留原有 CLI 名称：
+
+- `harness-submit` 继续只做 append-only request intake
+- runtime 会把 request 绑定到 task，并把状态推进到 `bound / dispatched / running / verified / completed`
+- `lineage.jsonl` 与 `state/lineage-index.json` 会把 `request -> task -> session -> worktree -> verification -> outcome` 串起来
+- `state/current.json`、`state/runtime.json`、`state/request-summary.json`、`state/lineage-index.json` 是人类 / operator / agent / runtime 共用的热路径
+- runtime 发现失败、阻塞、审计需求后，会把 `replan / stop / audit` follow-up request 重新写回 repo-local request queue
+
 ### 快速部署
 
 先安装 skill 到 Codex：
@@ -156,6 +166,7 @@ harness-submit /path/to/project --kind analysis --goal "分析这个代码库的
 harness-submit /path/to/project --kind research --goal "找十篇相关报告"
 harness-submit /path/to/project --kind implementation --goal "根据 PRD 生成代码" --context docs/prd.md
 harness-submit /path/to/project --kind status --goal "查看当前进度并汇报"
+python3 /path/to/project/.harness/scripts/request.py reconcile --root /path/to/project
 harness-report /path/to/project
 ```
 
@@ -172,6 +183,7 @@ harness-report /path/to/project
 OpenClaw / shell / cron / future callers
   -> harness-submit
   -> .harness/requests/queue.jsonl
+  -> request-index / request-task-map / lineage
   -> project runtime / orchestration
   -> task-pool / runner / tmux / codex
   -> verification / refresh-state
@@ -181,12 +193,13 @@ OpenClaw / shell / cron / future callers
 也就是说：
 
 - 上游调用方只负责提交 request
-- 项目运行时负责编排、派发、恢复、验证、汇报
+- 项目运行时负责编排、绑定、派发、恢复、验证、汇报
 - `runner` 是执行器，不是总入口
 
 更细的运行时约束见：
 
 - [docs/runtime-request-spec.md](./docs/runtime-request-spec.md)
+- [docs/klein-architecture.md](./docs/klein-architecture.md)
 
 推荐试用流程：
 
@@ -286,6 +299,8 @@ python3 .harness/scripts/refresh-state.py .
 - `.harness/state/runtime.json`
 - `.harness/state/blueprint-index.json`
 - `.harness/state/feedback-summary.json`
+- `.harness/state/request-summary.json`
+- `.harness/state/lineage-index.json`
 
 建议人工优先阅读：
 
@@ -310,6 +325,7 @@ harness-init /path/to/project
 harness-bootstrap /path/to/project "根据 PRD 生成代码" --context docs/prd.md --daemon
 harness-submit /path/to/project --kind implementation --goal "根据 PRD 生成代码" --context docs/prd.md
 harness-submit /path/to/project --kind status --goal "查看当前进度并汇报"
+python3 /path/to/project/.harness/scripts/request.py reconcile --root /path/to/project
 harness-report /path/to/project
 harness-report /path/to/project --request-id R-0003 --format json
 ```
@@ -341,7 +357,7 @@ python3 .harness/scripts/refresh-state.py .
 说明：
 
 - `--dispatch-mode tmux` 是默认真实派发模式
-- `--dispatch-mode print` 只生成 prompt / runner script，不启动 `tmux`，适合 smoke test 和发布前检查
+- `--dispatch-mode print` 会保留 route / dispatch evidence 和 request lifecycle 回写，但不启动 `tmux`，适合 smoke test 和发布前检查
 
 ### 典型执行链
 

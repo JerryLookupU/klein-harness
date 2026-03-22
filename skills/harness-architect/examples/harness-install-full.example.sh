@@ -13,6 +13,7 @@ SCRIPTS_DIR="$HARNESS_DIR/scripts"
 STATE_DIR="$HARNESS_DIR/state"
 TEMPLATES_DIR="$HARNESS_DIR/templates"
 REQUESTS=(
+  "$HARNESS_DIR/audit-requests.json"
   "$HARNESS_DIR/replan-requests.json"
   "$HARNESS_DIR/stop-requests.json"
 )
@@ -24,9 +25,12 @@ REQUEST_INDEX_PATH="$STATE_DIR/request-index.json"
 REQUEST_TASK_MAP_PATH="$STATE_DIR/request-task-map.json"
 PROJECT_META_PATH="$HARNESS_DIR/project-meta.json"
 FEEDBACK_LOG_PATH="$HARNESS_DIR/feedback-log.jsonl"
+LINEAGE_PATH="$HARNESS_DIR/lineage.jsonl"
 FEEDBACK_SUMMARY_PATH="$STATE_DIR/feedback-summary.json"
 RUNNER_STATE_PATH="$STATE_DIR/runner-state.json"
 RUNNER_HEARTBEATS_PATH="$STATE_DIR/runner-heartbeats.json"
+REQUEST_SUMMARY_PATH="$STATE_DIR/request-summary.json"
+LINEAGE_INDEX_PATH="$STATE_DIR/lineage-index.json"
 
 mkdir -p "$BIN_DIR" "$SCRIPTS_DIR" "$STATE_DIR" "$TEMPLATES_DIR" "$HARNESS_DIR/drift-log" "$HARNESS_DIR/verification-rules" "$STATE_DIR/runner-logs" "$REQUEST_ARCHIVE_DIR"
 
@@ -59,6 +63,7 @@ install_file "diff-summary.example.py" "$SCRIPTS_DIR/diff-summary.py"
 install_file "verify-task.example.py" "$SCRIPTS_DIR/verify-task.py"
 install_file "runner.example.py" "$SCRIPTS_DIR/runner.py"
 install_file "request.example.py" "$SCRIPTS_DIR/request.py"
+install_file "runtime-common.example.py" "$SCRIPTS_DIR/runtime_common.py"
 
 install_file "session-init.example.sh" "$HARNESS_DIR/session-init.sh"
 install_file "AGENTS.example.md" "$TEMPLATES_DIR/AGENTS.template.md"
@@ -92,82 +97,21 @@ if [ ! -f "$FEEDBACK_LOG_PATH" ]; then
   : > "$FEEDBACK_LOG_PATH"
 fi
 
-python3 - <<'PY' "$REQUEST_INDEX_PATH" "$REQUEST_TASK_MAP_PATH" "$PROJECT_META_PATH" "$FEEDBACK_SUMMARY_PATH" "$RUNNER_STATE_PATH" "$RUNNER_HEARTBEATS_PATH" "$ROOT"
-import json
+if [ ! -f "$LINEAGE_PATH" ]; then
+  : > "$LINEAGE_PATH"
+fi
+
+python3 - <<'PY' "$ROOT" "$SCRIPTS_DIR/runtime_common.py"
+import importlib.util
 import sys
-from datetime import datetime, timezone
 from pathlib import Path
 
-request_index_path = Path(sys.argv[1])
-request_task_map_path = Path(sys.argv[2])
-project_meta_path = Path(sys.argv[3])
-feedback_summary_path = Path(sys.argv[4])
-runner_state_path = Path(sys.argv[5])
-runner_heartbeats_path = Path(sys.argv[6])
-root = Path(sys.argv[7]).resolve()
-timestamp = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
-
-if not request_index_path.exists():
-    request_index_path.write_text(json.dumps({
-        "schemaVersion": "1.0",
-        "generator": "harness-architect",
-        "generatedAt": timestamp,
-        "nextSeq": 1,
-        "requests": []
-    }, ensure_ascii=False, indent=2) + "\n")
-
-if not request_task_map_path.exists():
-    request_task_map_path.write_text(json.dumps({
-        "schemaVersion": "1.0",
-        "generator": "harness-architect",
-        "generatedAt": timestamp,
-        "bindings": []
-    }, ensure_ascii=False, indent=2) + "\n")
-
-if not project_meta_path.exists():
-    project_meta_path.write_text(json.dumps({
-        "schemaVersion": "1.0",
-        "generator": "harness-architect",
-        "generatedAt": timestamp,
-        "projectRoot": str(root),
-        "lifecycle": "initialized",
-        "bootstrapStatus": "not_started",
-        "requestQueueEnabled": True
-    }, ensure_ascii=False, indent=2) + "\n")
-
-if not feedback_summary_path.exists():
-    feedback_summary_path.write_text(json.dumps({
-        "schemaVersion": "1.0",
-        "generator": "harness-architect",
-        "generatedAt": timestamp,
-        "feedbackLogPath": ".harness/feedback-log.jsonl",
-        "taskFeedbackSummary": {},
-        "recentFailures": [],
-        "illegalActionTaskIds": []
-    }, ensure_ascii=False, indent=2) + "\n")
-
-if not runner_state_path.exists():
-    runner_state_path.write_text(json.dumps({
-        "schemaVersion": "1.0",
-        "generator": "harness-runner",
-        "generatedAt": timestamp,
-        "lastTickAt": None,
-        "lastTrigger": None,
-        "activeRuns": [],
-        "recoverableRuns": [],
-        "staleRuns": [],
-        "dispatchableTaskIds": [],
-        "blockedRoutes": [],
-        "lastErrors": []
-    }, ensure_ascii=False, indent=2) + "\n")
-
-if not runner_heartbeats_path.exists():
-    runner_heartbeats_path.write_text(json.dumps({
-        "schemaVersion": "1.0",
-        "generator": "harness-runner",
-        "generatedAt": timestamp,
-        "entries": {}
-    }, ensure_ascii=False, indent=2) + "\n")
+root = Path(sys.argv[1]).resolve()
+module_path = Path(sys.argv[2]).resolve()
+spec = importlib.util.spec_from_file_location("runtime_common", module_path)
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+module.ensure_runtime_scaffold(root, generator="harness-architect")
 PY
 
 cat > "$MANIFEST" <<'JSON'
@@ -277,6 +221,11 @@ cat > "$MANIFEST" <<'JSON'
       "source": "examples/request.example.py"
     },
     {
+      "name": "runtime_common.py",
+      "target": ".harness/scripts/runtime_common.py",
+      "source": "examples/runtime-common.example.py"
+    },
+    {
       "name": "session-init.sh",
       "target": ".harness/session-init.sh",
       "source": "examples/session-init.example.sh"
@@ -300,13 +249,15 @@ cat > "$MANIFEST" <<'JSON'
 }
 JSON
 
-python3 - <<'PY' "$MANIFEST" "${REQUESTS[@]}"
+python3 - <<'PY' "$MANIFEST" "${REQUESTS[@]}" "$REQUEST_SUMMARY_PATH" "$LINEAGE_INDEX_PATH"
 import json
 import sys
 from datetime import datetime, timezone
+from pathlib import Path
 
 manifest_path = sys.argv[1]
-request_paths = sys.argv[2:]
+request_paths = sys.argv[2:5]
+state_paths = sys.argv[5:]
 timestamp = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
 
 manifest = json.load(open(manifest_path))
@@ -315,6 +266,14 @@ json.dump(manifest, open(manifest_path, "w"), ensure_ascii=False, indent=2)
 open(manifest_path, "a").write("\n")
 
 for path in request_paths:
+    data = json.load(open(path))
+    data["generatedAt"] = timestamp
+    json.dump(data, open(path, "w"), ensure_ascii=False, indent=2)
+    open(path, "a").write("\n")
+
+for path in state_paths:
+    if not Path(path).exists():
+        continue
     data = json.load(open(path))
     data["generatedAt"] = timestamp
     json.dump(data, open(path, "w"), ensure_ascii=False, indent=2)

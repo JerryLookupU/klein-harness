@@ -76,6 +76,8 @@ def make_overview(progress, tasks, work_items, features, session_registry, runti
         "feedbackErrorCount": (runtime_state or {}).get("feedbackErrorCount", (feedback_summary or {}).get("errorCount", 0)),
         "illegalActionCount": (runtime_state or {}).get("illegalActionCount", (feedback_summary or {}).get("illegalActionCount", 0)),
         "tasksWithRecentFailures": (runtime_state or {}).get("tasksWithRecentFailures", (feedback_summary or {}).get("tasksWithRecentFailures", [])),
+        "requestCounts": (runtime_state or {}).get("requestCounts", {}),
+        "activeRequest": (runtime_state or {}).get("activeRequest"),
     }
 
 
@@ -221,7 +223,12 @@ def format_text(view, payload):
             f"blockedRoutes: {payload.get('blockedRouteCount', 0)}",
             f"feedbackErrors: {payload.get('feedbackErrorCount', 0)}",
             f"illegalActions: {payload.get('illegalActionCount', 0)}",
+            f"requestCounts: {payload.get('requestCounts', {})}",
         ]
+        if payload.get("activeRequest"):
+            lines.append(
+                f"activeRequest: {payload['activeRequest'].get('requestId')} [{payload['activeRequest'].get('status')}]"
+            )
         return "\n".join(lines)
     if view == "progress":
         return "\n".join(
@@ -354,6 +361,8 @@ def main():
                 "activeTasks": runtime_state.get("activeTasks", []),
                 "activeRuns": runtime_state.get("activeRuns", []),
                 "orchestrationSessionId": runtime_state.get("orchestrationSessionId"),
+                "activeRequest": runtime_state.get("activeRequest"),
+                "activeBinding": runtime_state.get("activeBinding"),
             }
         else:
             payload = make_current(progress, tasks, session_registry, feedback_summary)

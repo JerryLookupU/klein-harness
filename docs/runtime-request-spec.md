@@ -2,7 +2,7 @@
 
 ## Goal
 
-Unify all upstream entry points into one project runtime:
+Unify all upstream entry points into one repo-local runtime:
 
 - `OpenClaw`
 - `shell`
@@ -10,7 +10,7 @@ Unify all upstream entry points into one project runtime:
 - future external callers
 
 All of them submit requests.
-Only the project runtime decides orchestration, task dispatch, recovery, verification, and reporting.
+Only the project runtime decides binding, routing, dispatch, recovery, verification, follow-up requests, and reporting.
 
 ## Entry Model
 
@@ -30,15 +30,42 @@ Project-local entry commands under `.harness/bin`:
 - `harness-query`
 - `harness-dashboard`
 - `harness-watch`
+- `harness-route-session`
 - `harness-verify-task`
 
-## Lifecycle
+Repo-local Python control surface:
 
-### 1. Init
+- `.harness/scripts/request.py reconcile --root <ROOT>`
+- `.harness/scripts/request.py cancel --root <ROOT> --request-id <ID>`
+- `.harness/scripts/refresh-state.py <ROOT>`
+
+## Request Lifecycle
+
+Append-only intake lives in `.harness/requests/queue.jsonl`.
+The queue entry is never rewritten.
+Lifecycle is tracked in `.harness/state/request-index.json`, `.harness/state/request-task-map.json`, and `.harness/lineage.jsonl`.
+
+Supported request states:
+
+- `queued -> bound -> dispatched -> running -> verified -> completed`
+- `queued -> blocked`
+- `queued -> cancelled`
+- `running -> recoverable -> resumed`
+
+Notes:
+
+- `bound` means runtime chose at least one task and wrote an explicit binding artifact.
+- `dispatched` means routing passed and runner wrote dispatch evidence, even in `--dispatch-mode print`.
+- `running` is driven by runner heartbeat, not by model self-report.
+- `verified` is written by `harness-verify-task`.
+- `completed` closes the request loop once all bound work is verified.
+- `recoverable` means the runtime has enough lineage/session state to resume or replan.
+
+## Init
 
 `harness-init` creates the minimal operator/runtime skeleton without invoking a model.
 
-Creates:
+Creates at least:
 
 - `.harness/bin/*`
 - `.harness/scripts/*`
@@ -47,123 +74,140 @@ Creates:
 - `.harness/requests/archive/`
 - `.harness/state/request-index.json`
 - `.harness/state/request-task-map.json`
+- `.harness/state/request-summary.json`
+- `.harness/state/lineage-index.json`
+- `.harness/lineage.jsonl`
+- `.harness/session-registry.json`
 - `.harness/project-meta.json`
 
-### 2. Bootstrap
-
-`harness-bootstrap` is the first model-backed orchestration round.
-
-Responsibilities:
-
-- inspect the repo
-- create `.harness/standards.md`
-- create `.harness/verification-rules/manifest.json`
-- create `features/work-items/spec/task-pool/context-map/progress/session-registry`
-- refresh hot state
-- optionally launch daemon mode
-
-### 3. Submit
-
-All incremental requests go through `harness-submit`.
-
-Supported request kinds in phase 1:
-
-- `bootstrap`
-- `analysis`
-- `research`
-- `implementation`
-- `audit`
-- `status`
-- `change`
-- `replan`
-- `stop`
-
-Phase 1 behavior:
-
-- append request to queue
-- update request index
-- do not directly mutate task-pool
-- let runtime/daemon consume later
-
-### 4. Report
-
-`harness-report` summarizes:
-
-- request queue counts
-- active request overview
-- current runtime focus
-- current active task
-- active/recoverable/stale runners
-- verification summary
-
-## Data Contracts
-
-### `.harness/requests/queue.jsonl`
-
-Append-only queue of incoming requests.
-
-Each request contains at least:
-
-- `requestId`
-- `seq`
-- `source`
-- `kind`
-- `goal`
-- `projectRoot`
-- `contextPaths`
-- `threadKey`
-- `priority`
-- `scope`
-- `mergePolicy`
-- `replyPolicy`
-- `status`
-- `createdAt`
-
-### `.harness/state/request-index.json`
-
-Machine-readable summary for request queries.
-
-Contains:
+All structured snapshot files include:
 
 - `schemaVersion`
 - `generator`
 - `generatedAt`
-- `nextSeq`
-- `requests`
 
-### `.harness/state/request-task-map.json`
+All append-only event logs follow append-only semantics:
 
-Reserved for orchestration binding between requests and tasks.
+- `.harness/requests/queue.jsonl`
+- `.harness/lineage.jsonl`
+- `.harness/feedback-log.jsonl`
 
-Phase 1 initializes the file but does not yet drive bindings automatically.
+## Binding
 
-## Cache Hit Strategy
+`request.py reconcile` and `harness-runner` both use the same repo-local binding model.
 
-Cache-sensitive work should be merged with the orchestration/runtime stage, not with ad hoc callers.
+Binding rules:
 
-Recommended split:
+- do not mutate the append-only intake line
+- write machine-readable bindings into `.harness/state/request-task-map.json`
+- mirror request status in `.harness/state/request-index.json`
+- append a lineage event for each meaningful transition
+- prefer explicit reasons over implicit prompt interpretation
 
-- request intake + orchestration routing:
-  use one long-lived orchestration session
-- worker execution:
-  use task-level `fresh` / `resume`
-- lint/verification:
-  run in the same post-run reconcile chain as runner
-- status/report:
-  prefer reading hot state files, not opening new model sessions
+Each binding records at least:
 
-## Phase 1 Delivery
+- `bindingId`
+- `requestId`
+- `taskId`
+- `status`
+- `bindingReason`
+- `createdAt`
+- `updatedAt`
+- `lineage.sessionId`
+- `lineage.worktreePath`
+- `lineage.diffBase`
+- `lineage.diffSummary`
+- `lineage.verificationStatus`
+- `lineage.verificationResultPath`
+- `history[]`
 
-Phase 1 implemented by this repo change:
+## Route First, Dispatch Second
 
-- startup split into `init/bootstrap/submit/report`
-- request queue + index initialization
-- global helper wrappers
-- project-local submit/report tools
-- verification integrated into runner post-run reconcile
+`harness-route-session` is the pre-worker gate.
 
-Still deferred:
+Runtime contract:
 
-- request-aware daemon consumption
-- automatic request-to-task binding
-- request-level completion transitions
+1. reconcile queued requests to tasks
+2. run route gate and persist the decision
+3. only dispatch when route output says `dispatchReady=true`
+4. write claim/session binding explicitly
+5. then launch or preview execution
+
+The execution model never decides `fresh` vs `resume` on its own.
+
+## Anti-Self-Intersection Rules
+
+- sibling concurrent workers must not resume the same active session
+- `session-registry.activeBindings` is the shared truth for active session ownership
+- `ownedPaths`, `worktreePath`, `diffBase`, `claim.boundSessionId`, and request binding stay explicit
+- blocked routes emit auditable evidence instead of vague prompt text
+
+## Hot State
+
+Primary machine-readable hot path:
+
+- `.harness/state/current.json`
+- `.harness/state/runtime.json`
+- `.harness/state/blueprint-index.json`
+- `.harness/state/feedback-summary.json`
+- `.harness/state/request-summary.json`
+- `.harness/state/lineage-index.json`
+
+`refresh-state.py` refreshes these from:
+
+- progress / spec / work-items / task-pool
+- request index + request-task map
+- session registry
+- runner state + heartbeat
+- feedback log
+- lineage log
+
+Operator tools should prefer hot state first and degrade gracefully to the source ledgers.
+
+## Re-entrant Follow-Ups
+
+Runtime findings can emit repo-local follow-up requests back into the request queue.
+
+Current minimal mechanism:
+
+- verification failure emits `replan`
+- blocked session/path conflicts emit `replan` or `stop`
+- verified merge-required work can emit `audit`
+
+These follow-up requests:
+
+- are appended to `.harness/requests/queue.jsonl`
+- appear in `request-index.json`
+- get lineage events in `.harness/lineage.jsonl`
+- remain scriptable and repo-local
+
+## Report Surface
+
+`harness-report` reads hot state first and summarizes:
+
+- request counts
+- selected / active request
+- bound task
+- bound session
+- worktree path
+- verification summary
+- current runtime focus
+- active / recoverable / stale runners
+- lineage event count
+
+## Smoke Path
+
+The release smoke proves:
+
+1. install
+2. init
+3. submit
+4. reconcile / bind
+5. route
+6. runner print dispatch evidence
+7. recover / resume
+8. verify
+9. refresh-state
+10. report
+
+The smoke also checks that follow-up requests and lineage summaries are written.

@@ -1,130 +1,28 @@
 #!/usr/bin/env python3
 import json
-import re
 import sys
 from collections import Counter
-from datetime import datetime, timezone
 from pathlib import Path
 
-
-def load_json(path: Path):
-    return json.loads(path.read_text())
-
-
-def load_jsonl(path: Path):
-    records = []
-    if not path.exists():
-        return records
-    for line in path.read_text().splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        records.append(json.loads(line))
-    return records
-
-
-def write_json(path: Path, data):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n")
-
-
-def load_progress(path: Path):
-    text = path.read_text()
-    match = re.search(r"```json\s*(\{[\s\S]*?\})\s*```", text)
-    if not match:
-        raise ValueError(f"missing json block in {path}")
-    return json.loads(match.group(1))
-
-
-def now_iso():
-    return datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
+from runtime_common import (
+    TASK_ACTIVE_STATUSES,
+    build_feedback_summary,
+    build_lineage_index,
+    build_request_summary,
+    ensure_runtime_scaffold,
+    load_json,
+    load_jsonl,
+    load_optional_json,
+    load_progress,
+    maybe_complete_request,
+    now_iso,
+    reconcile_requests,
+    write_json,
+)
 
 
 def active_tasks(tasks):
-    return [t for t in tasks if t.get("status") in {"active", "claimed", "in_progress"}]
-
-
-def sort_key(entry):
-    return (entry.get("timestamp") or "", entry.get("id") or "")
-
-
-def trim_feedback(entry):
-    return {
-        "id": entry.get("id"),
-        "taskId": entry.get("taskId"),
-        "sessionId": entry.get("sessionId"),
-        "role": entry.get("role"),
-        "workerMode": entry.get("workerMode"),
-        "feedbackType": entry.get("feedbackType"),
-        "severity": entry.get("severity"),
-        "source": entry.get("source"),
-        "step": entry.get("step"),
-        "triggeringAction": entry.get("triggeringAction"),
-        "message": entry.get("message"),
-        "timestamp": entry.get("timestamp"),
-    }
-
-
-def build_feedback_summary(entries):
-    ordered = sorted(entries, key=sort_key)
-    errors = [entry for entry in ordered if entry.get("severity") in {"error", "critical"}]
-    illegal_actions = [entry for entry in ordered if entry.get("feedbackType") == "illegal_action"]
-    recent_failures = [trim_feedback(entry) for entry in errors[-5:]]
-    task_summary = {}
-
-    for entry in ordered:
-        task_id = entry.get("taskId")
-        if not task_id:
-            continue
-        summary = task_summary.setdefault(
-            task_id,
-            {
-                "taskId": task_id,
-                "feedbackCount": 0,
-                "errorCount": 0,
-                "criticalCount": 0,
-                "latestFeedbackType": None,
-                "latestSeverity": None,
-                "latestMessage": None,
-                "latestTimestamp": None,
-                "recentFailures": [],
-            },
-        )
-        summary["feedbackCount"] += 1
-        if entry.get("severity") in {"error", "critical"}:
-            summary["errorCount"] += 1
-        if entry.get("severity") == "critical":
-            summary["criticalCount"] += 1
-        summary["latestFeedbackType"] = entry.get("feedbackType")
-        summary["latestSeverity"] = entry.get("severity")
-        summary["latestMessage"] = entry.get("message")
-        summary["latestTimestamp"] = entry.get("timestamp")
-
-    for task_id in list(task_summary.keys()):
-        task_entries = [
-            trim_feedback(entry)
-            for entry in ordered
-            if entry.get("taskId") == task_id and entry.get("severity") in {"error", "critical"}
-        ]
-        task_summary[task_id]["recentFailures"] = task_entries[-3:]
-
-    return {
-        "schemaVersion": "1.0",
-        "generator": "harness-architect",
-        "generatedAt": now_iso(),
-        "feedbackLogPath": ".harness/feedback-log.jsonl",
-        "feedbackEventCount": len(ordered),
-        "errorCount": len(errors),
-        "criticalCount": sum(1 for entry in ordered if entry.get("severity") == "critical"),
-        "illegalActionCount": len(illegal_actions),
-        "tasksWithRecentFailures": sorted(
-            task_id for task_id, summary in task_summary.items() if summary["recentFailures"]
-        ),
-        "byType": dict(Counter(entry.get("feedbackType", "unknown") for entry in ordered)),
-        "bySeverity": dict(Counter(entry.get("severity", "unknown") for entry in ordered)),
-        "recentFailures": recent_failures,
-        "taskFeedbackSummary": task_summary,
-    }
+    return [task for task in tasks if task.get("status") in TASK_ACTIVE_STATUSES]
 
 
 def main():
@@ -133,24 +31,40 @@ def main():
         sys.exit(1)
 
     root = Path(sys.argv[1]).resolve()
-    harness = root / ".harness"
-    state_dir = harness / "state"
+    files = ensure_runtime_scaffold(root, generator="harness-refresh-state")
+    reconcile_requests(root, generator="harness-refresh-state")
 
-    progress = load_progress(harness / "progress.md")
-    task_pool = load_json(harness / "task-pool.json")
-    work_items = load_json(harness / "work-items.json")
-    spec = load_json(harness / "spec.json")
-    session_registry_path = harness / "session-registry.json"
-    session_registry = load_json(session_registry_path) if session_registry_path.exists() else {}
-    feedback_log_path = harness / "feedback-log.jsonl"
-    feedback_entries = load_jsonl(feedback_log_path)
+    progress = load_progress(files["harness"] / "progress.md")
+    task_pool = load_json(files["harness"] / "task-pool.json")
+    work_items = load_json(files["harness"] / "work-items.json")
+    spec = load_json(files["harness"] / "spec.json")
+    session_registry = load_json(files["session_registry_path"])
+    feedback_entries = load_jsonl(files["feedback_log_path"])
     feedback_summary = build_feedback_summary(feedback_entries)
-    runner_state_path = state_dir / "runner-state.json"
-    runner_state = load_json(runner_state_path) if runner_state_path.exists() else {}
+    runner_state = load_json(files["runner_state_path"])
+    request_index = load_json(files["request_index_path"])
+    request_task_map = load_json(files["request_task_map_path"])
+    lineage_entries = load_jsonl(files["lineage_path"])
+
+    for request in request_index.get("requests", []):
+        maybe_complete_request(root, request.get("requestId"), generator="harness-refresh-state")
+    request_index = load_json(files["request_index_path"])
+    request_task_map = load_json(files["request_task_map_path"])
 
     tasks = task_pool.get("tasks", [])
     items = work_items.get("items", [])
     active = active_tasks(tasks)
+
+    request_summary = build_request_summary(request_index, request_task_map, task_pool)
+    lineage_index = build_lineage_index(lineage_entries, task_pool, request_task_map)
+    active_request = request_summary.get("activeRequest") or {}
+    active_binding = next(
+        (
+            binding for binding in request_summary.get("bindings", [])
+            if binding.get("requestId") == active_request.get("requestId")
+        ),
+        None,
+    )
 
     current_state = {
         "schemaVersion": "1.0",
@@ -163,6 +77,17 @@ def main():
         "currentTaskId": progress.get("currentTaskId"),
         "currentTaskTitle": progress.get("currentTaskTitle"),
         "currentTaskSummary": progress.get("currentTaskSummary"),
+        "currentRequestId": active_request.get("requestId"),
+        "currentRequestKind": active_request.get("kind"),
+        "currentRequestStatus": active_request.get("status"),
+        "currentBindingId": active_binding.get("bindingId") if active_binding else None,
+        "currentSessionId": active_binding.get("sessionId") if active_binding else None,
+        "currentVerificationStatus": active_binding.get("verificationStatus") if active_binding else None,
+        "activeRequestId": active_request.get("requestId"),
+        "activeRequestKind": active_request.get("kind"),
+        "activeRequestStatus": active_request.get("status"),
+        "activeRequestTaskId": active_binding.get("taskId") if active_binding else None,
+        "activeRequestSessionId": active_binding.get("sessionId") if active_binding else None,
         "blockers": progress.get("blockers", []),
         "nextActions": progress.get("nextActions", []),
         "lastAuditStatus": progress.get("lastAuditStatus"),
@@ -182,33 +107,35 @@ def main():
         "generatedAt": now_iso(),
         "orchestrationSessionId": session_registry.get("orchestrationSessionId"),
         "activeTaskCount": len(active),
-        "activeWorkerCount": sum(1 for t in active if t.get("roleHint") == "worker"),
-        "activeAuditWorkerCount": sum(1 for t in active if t.get("kind") == "audit"),
-        "activeOrchestratorCount": sum(1 for t in active if t.get("kind") in {"orchestration", "replan", "rollback", "merge", "lease-recovery"}),
+        "activeWorkerCount": sum(1 for task in active if task.get("roleHint") == "worker"),
+        "activeAuditWorkerCount": sum(1 for task in active if task.get("kind") == "audit"),
+        "activeOrchestratorCount": sum(
+            1
+            for task in active
+            if task.get("kind") in {"orchestration", "replan", "rollback", "merge", "lease-recovery"}
+        ),
         "activeTasks": [
             {
-                "taskId": t.get("taskId"),
-                "kind": t.get("kind"),
-                "roleHint": t.get("roleHint"),
-                "workerMode": t.get("workerMode"),
-                "title": t.get("title"),
-                "summary": t.get("summary"),
-                "nodeId": t.get("claim", {}).get("nodeId"),
-                "boundSessionId": t.get("claim", {}).get("boundSessionId"),
-                "branchName": t.get("branchName"),
-                "worktreePath": t.get("worktreePath"),
-                "recentFailures": feedback_summary.get("taskFeedbackSummary", {})
-                .get(t.get("taskId"), {})
-                .get("recentFailures", []),
+                "taskId": task.get("taskId"),
+                "kind": task.get("kind"),
+                "roleHint": task.get("roleHint"),
+                "workerMode": task.get("workerMode"),
+                "title": task.get("title"),
+                "summary": task.get("summary"),
+                "nodeId": task.get("claim", {}).get("nodeId"),
+                "boundSessionId": task.get("claim", {}).get("boundSessionId"),
+                "branchName": task.get("branchName"),
+                "worktreePath": task.get("worktreePath"),
+                "recentFailures": feedback_summary.get("taskFeedbackSummary", {}).get(task.get("taskId"), {}).get("recentFailures", []),
             }
-            for t in active
+            for task in active
         ],
         "activeRunnerCount": len(runner_state.get("activeRuns", [])),
         "recoverableTaskCount": len(runner_state.get("recoverableRuns", [])),
         "staleRunnerCount": len(runner_state.get("staleRuns", [])),
         "blockedRouteCount": len(runner_state.get("blockedRoutes", [])),
-        "verifiedTaskCount": sum(1 for t in tasks if t.get("verificationStatus") == "pass"),
-        "failingVerificationCount": sum(1 for t in tasks if t.get("verificationStatus") == "fail"),
+        "verifiedTaskCount": sum(1 for task in tasks if task.get("verificationStatus") in {"pass", "skipped"}),
+        "failingVerificationCount": sum(1 for task in tasks if task.get("verificationStatus") == "fail"),
         "feedbackEventCount": feedback_summary.get("feedbackEventCount", 0),
         "feedbackErrorCount": feedback_summary.get("errorCount", 0),
         "feedbackCriticalCount": feedback_summary.get("criticalCount", 0),
@@ -220,19 +147,32 @@ def main():
         "staleRuns": runner_state.get("staleRuns", []),
         "lastTickAt": runner_state.get("lastTickAt"),
         "lastTrigger": runner_state.get("lastTrigger"),
+        "requestCounts": request_summary.get("requestCounts", {}),
+        "activeRequest": active_request,
+        "activeBinding": active_binding,
+        "boundRequestCount": request_summary.get("boundRequestCount", 0),
+        "runningRequestCount": request_summary.get("runningRequestCount", 0),
+        "recoverableRequestCount": request_summary.get("recoverableRequestCount", 0),
+        "blockedRequestCount": request_summary.get("blockedRequestCount", 0),
+        "completedRequestCount": request_summary.get("completedRequestCount", 0),
+        "lineageEventCount": lineage_index.get("eventCount", 0),
+        "lineageLastSeq": lineage_index.get("lastSeq", 0),
+        "activeLineageBindings": lineage_index.get("activeBindings", []),
+        "lineageRequestCount": len(lineage_index.get("requests", {})),
+        "requestBindings": request_summary.get("bindings", []),
     }
 
     blocks = {}
     for block in spec.get("blocks", []):
         block_id = block.get("id")
-        block_items = [w for w in items if set(w.get("featureIds", [])) & set(block.get("featureIds", []))]
-        block_tasks = [t for t in tasks if t.get("blockId") == block_id]
+        block_items = [item for item in items if set(item.get("featureIds", [])) & set(block.get("featureIds", []))]
+        block_tasks = [task for task in tasks if task.get("blockId") == block_id]
         blocks[block_id] = {
             "title": block.get("title"),
             "status": block.get("status"),
             "featureIds": block.get("featureIds", []),
-            "workItemIds": [w.get("id") for w in block_items],
-            "taskIds": [t.get("taskId") for t in block_tasks],
+            "workItemIds": [item.get("id") for item in block_items],
+            "taskIds": [task.get("taskId") for task in block_tasks],
         }
 
     blueprint_index = {
@@ -243,16 +183,18 @@ def main():
         "planningStage": spec.get("planningStage"),
         "objective": spec.get("objective"),
         "integrationBranch": task_pool.get("integrationBranch"),
-        "taskStatusCounts": dict(Counter(t.get("status", "unknown") for t in tasks)),
+        "taskStatusCounts": dict(Counter(task.get("status", "unknown") for task in tasks)),
         "blocks": blocks,
     }
 
-    write_json(state_dir / "current.json", current_state)
-    write_json(state_dir / "runtime.json", runtime_state)
-    write_json(state_dir / "blueprint-index.json", blueprint_index)
-    write_json(state_dir / "feedback-summary.json", feedback_summary)
+    write_json(files["state_dir"] / "current.json", current_state)
+    write_json(files["state_dir"] / "runtime.json", runtime_state)
+    write_json(files["state_dir"] / "blueprint-index.json", blueprint_index)
+    write_json(files["feedback_summary_path"], feedback_summary)
+    write_json(files["request_summary_path"], request_summary)
+    write_json(files["lineage_index_path"], lineage_index)
 
-    print(json.dumps({"ok": True, "stateDir": str(state_dir)}, ensure_ascii=False, indent=2))
+    print(json.dumps({"ok": True, "stateDir": str(files["state_dir"])}, ensure_ascii=False, indent=2))
 
 
 if __name__ == "__main__":

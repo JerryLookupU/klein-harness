@@ -4,31 +4,23 @@ import json
 import sys
 from pathlib import Path
 
-
-ACTIVE_STATUSES = {"active", "claimed", "in_progress"}
-COMPLETED_STATUSES = {"completed", "validated", "done", "pass"}
-SEVERE_ROUTE_FAILURES = {"illegal_action", "path_conflict", "session_conflict", "replan_required"}
-
-
-def load_json(path: Path):
-    return json.loads(path.read_text())
-
-
-def load_optional_json(path: Path):
-    if path.exists():
-        return load_json(path)
-    return None
+from runtime_common import (
+    SEVERE_ROUTE_FAILURES,
+    TASK_ACTIVE_STATUSES,
+    ensure_runtime_scaffold,
+    find_task,
+    load_json,
+    load_optional_json,
+    record_route_decision,
+)
 
 
-def find_task(tasks, task_id: str):
-    for task in tasks:
-        if task.get("taskId") == task_id:
-            return task
-    raise KeyError(f"task not found: {task_id}")
+COMPLETED_STATUSES = {"completed", "validated", "done", "pass", "verified"}
+CONTROL_PLANE_KINDS = {"orchestration", "replan", "rollback", "lease-recovery"}
 
 
 def active_tasks(tasks):
-    return [task for task in tasks if task.get("status") in ACTIVE_STATUSES]
+    return [task for task in tasks if task.get("status") in TASK_ACTIVE_STATUSES]
 
 
 def completed_task_ids(tasks):
@@ -51,11 +43,9 @@ def path_overlap(left: str, right: str) -> bool:
     if left == right:
         return True
     if left.endswith("/**"):
-        prefix = left[:-3]
-        return right.startswith(prefix)
+        return right.startswith(left[:-3])
     if right.endswith("/**"):
-        prefix = right[:-3]
-        return left.startswith(prefix)
+        return left.startswith(right[:-3])
     return False
 
 
@@ -83,7 +73,7 @@ def session_in_use_by_other(session_id: str, task_id: str, tasks, session_regist
     for task in tasks:
         if task.get("taskId") == task_id:
             continue
-        if task.get("status") in ACTIVE_STATUSES and task.get("claim", {}).get("boundSessionId") == session_id:
+        if task.get("status") in TASK_ACTIVE_STATUSES and task.get("claim", {}).get("boundSessionId") == session_id:
             return True
     for binding in session_registry.get("activeBindings", []):
         if binding.get("taskId") != task_id and binding.get("sessionId") == session_id:
@@ -92,8 +82,8 @@ def session_in_use_by_other(session_id: str, task_id: str, tasks, session_regist
 
 
 def dedupe(values):
-    seen = set()
     result = []
+    seen = set()
     for value in values:
         if value and value not in seen:
             seen.add(value)
@@ -101,11 +91,14 @@ def dedupe(values):
     return result
 
 
+def task_requires_explicit_workspace(task: dict):
+    if task.get("kind") in CONTROL_PLANE_KINDS or task.get("roleHint") == "orchestrator":
+        return False
+    return task.get("kind") != "audit" and task.get("workerMode") != "audit"
+
+
 def route_task(task, tasks, session_registry, feedback_summary):
     orchestration_session_id = session_registry.get("orchestrationSessionId")
-    if not orchestration_session_id:
-        raise ValueError("missing orchestrationSessionId in session-registry.json")
-
     reasons = []
     needs_orchestrator = False
     claimable = True
@@ -115,6 +108,10 @@ def route_task(task, tasks, session_registry, feedback_summary):
         failure for failure in recent_failures
         if failure.get("feedbackType") in SEVERE_ROUTE_FAILURES
     ]
+
+    if not orchestration_session_id:
+        needs_orchestrator = True
+        reasons.append("missing orchestrationSessionId in session-registry.json")
 
     status = task.get("status")
     role_hint = task.get("roleHint")
@@ -135,7 +132,7 @@ def route_task(task, tasks, session_registry, feedback_summary):
         claimable = False
         reasons.append(f"dependencies not completed: {unmet_deps}")
 
-    if claim.get("agentId") and status in ACTIVE_STATUSES:
+    if claim.get("agentId") and status in TASK_ACTIVE_STATUSES:
         reasons.append(f"task already claimed by {claim.get('agentId')}")
 
     conflicting_tasks = [
@@ -157,25 +154,39 @@ def route_task(task, tasks, session_registry, feedback_summary):
             + ", ".join(failure.get("feedbackType", "unknown") for failure in severe_recent)
         )
 
-    candidate_sessions = dedupe(
-        [
-            claim.get("boundSessionId"),
-            task.get("preferredResumeSessionId"),
-            *task.get("candidateResumeSessionIds", []),
-            task.get("lastKnownSessionId"),
-        ]
-    )
+    if task_requires_explicit_workspace(task):
+        if not task.get("worktreePath"):
+            claimable = False
+            reasons.append("worker task missing worktreePath")
+        if not (task.get("diffBase") or task.get("dispatch", {}).get("diffBase")):
+            claimable = False
+            reasons.append("worker task missing diffBase")
+        if not task.get("ownedPaths"):
+            claimable = False
+            reasons.append("worker task missing ownedPaths")
+
+    candidate_sessions = dedupe([
+        claim.get("boundSessionId"),
+        task.get("preferredResumeSessionId"),
+        *task.get("candidateResumeSessionIds", []),
+        task.get("lastKnownSessionId"),
+    ])
     safe_candidates = [
         session_id
         for session_id in candidate_sessions
         if not session_in_use_by_other(session_id, task.get("taskId"), tasks, session_registry)
     ]
+    contested_candidates = [session_id for session_id in candidate_sessions if session_id not in safe_candidates]
 
     resume_strategy = "fresh"
     preferred_resume_session_id = None
     if task.get("resumeStrategy") == "resume":
         preferred = task.get("preferredResumeSessionId")
-        if preferred and preferred in safe_candidates:
+        if contested_candidates:
+            claimable = False
+            needs_orchestrator = True
+            reasons.append(f"resume candidates already owned elsewhere: {contested_candidates}")
+        elif preferred and preferred in safe_candidates:
             resume_strategy = "resume"
             preferred_resume_session_id = preferred
             reasons.append("preferred resume session is safe to reuse")
@@ -188,10 +199,9 @@ def route_task(task, tasks, session_registry, feedback_summary):
             needs_orchestrator = True
             reasons.append(f"multiple safe resume candidates require orchestration review: {safe_candidates}")
         else:
-            reasons.append("no safe resume candidate found; downgraded to fresh")
-
-    if role_hint == "orchestrator":
-        prompt_stages = ["start", "execute", "recover"]
+            claimable = False
+            needs_orchestrator = True
+            reasons.append("no safe resume candidate found for resume-only task")
 
     gate_status = "claimable"
     if needs_orchestrator:
@@ -212,6 +222,7 @@ def route_task(task, tasks, session_registry, feedback_summary):
         "resumeStrategy": resume_strategy,
         "preferredResumeSessionId": preferred_resume_session_id,
         "candidateResumeSessionIds": safe_candidates,
+        "contestedResumeSessionIds": contested_candidates,
         "sessionFamilyId": task.get("sessionFamilyId"),
         "cacheAffinityKey": task.get("cacheAffinityKey"),
         "routingReason": task.get("routingReason"),
@@ -222,6 +233,12 @@ def route_task(task, tasks, session_registry, feedback_summary):
             "boundResumeStrategy": claim.get("boundResumeStrategy"),
             "boundFromTaskId": claim.get("boundFromTaskId"),
         },
+        "worktreePath": task.get("worktreePath"),
+        "branchName": task.get("branchName"),
+        "ownedPaths": task.get("ownedPaths", []),
+        "forbiddenPaths": task.get("forbiddenPaths", []),
+        "targetSelector": task.get("dispatch", {}).get("targetSelector"),
+        "diffBase": task.get("diffBase") or task.get("dispatch", {}).get("diffBase"),
         "commandProfile": task.get("dispatch", {}).get("commandProfile", {}),
     }
 
@@ -230,16 +247,19 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", required=True, help="project root containing .harness/")
     parser.add_argument("--task-id", required=True, help="task id to route")
+    parser.add_argument("--write-back", action="store_true", help="persist the routing decision into session-registry.json and lineage")
     args = parser.parse_args()
 
     root = Path(args.root).resolve()
-    harness = root / ".harness"
-    task_pool = load_json(harness / "task-pool.json")
-    session_registry = load_json(harness / "session-registry.json")
-    feedback_summary = load_optional_json(harness / "state" / "feedback-summary.json")
+    files = ensure_runtime_scaffold(root, generator="harness-route-session")
+    task_pool = load_json(files["harness"] / "task-pool.json")
+    session_registry = load_json(files["session_registry_path"])
+    feedback_summary = load_optional_json(files["feedback_summary_path"])
 
     task = find_task(task_pool.get("tasks", []), args.task_id)
     decision = route_task(task, task_pool.get("tasks", []), session_registry, feedback_summary)
+    if args.write_back:
+        record_route_decision(root, args.task_id, decision, generator="harness-route-session")
     print(json.dumps(decision, ensure_ascii=False, indent=2))
 
 

@@ -4,36 +4,28 @@ import json
 import subprocess
 import sys
 import time
-from datetime import datetime, timezone
 from pathlib import Path
 
-
-def load_json(path: Path):
-    return json.loads(path.read_text())
-
-
-def write_json(path: Path, data):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n")
-
-
-def now_iso():
-    return datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
-
-
-def find_task(tasks, task_id: str):
-    for task in tasks:
-        if task.get("taskId") == task_id:
-            return task
-    raise KeyError(f"task not found: {task_id}")
+from runtime_common import (
+    emit_follow_up_request,
+    ensure_runtime_scaffold,
+    find_task,
+    load_json,
+    load_optional_json,
+    maybe_complete_request,
+    now_iso,
+    request_bindings_for_task,
+    update_binding_state,
+    write_json,
+)
 
 
 def resolve_cwd(root: Path, task: dict):
     worktree_rel = task.get("worktreePath")
     if worktree_rel:
-      worktree_path = (root / worktree_rel).resolve()
-      if worktree_path.exists():
-          return worktree_path, "worktree"
+        worktree_path = (root / worktree_rel).resolve()
+        if worktree_path.exists():
+            return worktree_path, "worktree"
     return root, "root"
 
 
@@ -73,19 +65,18 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", required=True, help="project root containing .harness/")
     parser.add_argument("--task-id", required=True, help="task id to verify")
-    parser.add_argument("--write-back", action="store_true", help="write verification status back into task-pool.json")
+    parser.add_argument("--write-back", action="store_true", help="write verification status back into task-pool.json and request lifecycle")
     args = parser.parse_args()
 
     root = Path(args.root).resolve()
-    harness = root / ".harness"
-    task_pool_path = harness / "task-pool.json"
-    manifest_path = harness / "verification-rules" / "manifest.json"
+    files = ensure_runtime_scaffold(root, generator="harness-verify-task")
+    task_pool_path = files["harness"] / "task-pool.json"
+    manifest_path = files["harness"] / "verification-rules" / "manifest.json"
     task_pool = load_json(task_pool_path)
-    manifest = load_json(manifest_path)
+    manifest = load_optional_json(manifest_path, {"rules": []})
     task = find_task(task_pool.get("tasks", []), args.task_id)
     rules_by_id = {rule.get("id"): rule for rule in manifest.get("rules", [])}
-    verification_dir = harness / "state" / "verification"
-    result_path = verification_dir / f"{args.task_id}.json"
+    result_path = files["verification_dir"] / f"{args.task_id}.json"
 
     rule_ids = task.get("verificationRuleIds") or []
     cwd, cwd_source = resolve_cwd(root, task)
@@ -154,13 +145,78 @@ def main():
         task["verificationResultPath"] = str(result_path.relative_to(root))
         if overall_status == "pass":
             task["verificationSummary"] = f"{len(passed_rule_ids)}/{len(rule_ids)} rules passed"
+            task["status"] = "verified"
         elif overall_status == "skipped":
             task["verificationSummary"] = "no verification rules"
+            task["status"] = "verified"
         else:
             task["verificationSummary"] = (
                 f"{len(failed_rule_ids) + len(missing_rule_ids)} of {len(rule_ids)} rules failed or missing"
             )
+            task["status"] = "recoverable"
         write_json(task_pool_path, task_pool)
+
+        task_map = load_json(files["request_task_map_path"])
+        bindings = request_bindings_for_task(task_map, args.task_id)
+        for binding in bindings:
+            verification = {
+                "overallStatus": overall_status,
+                "summary": task.get("verificationSummary"),
+                "verificationResultPath": task["verificationResultPath"],
+            }
+            if overall_status in {"pass", "skipped"}:
+                update_binding_state(
+                    root,
+                    binding.get("requestId"),
+                    args.task_id,
+                    "verified",
+                    reason=f"verification {overall_status}",
+                    generator="harness-verify-task",
+                    session_id=binding.get("lineage", {}).get("sessionId"),
+                    verification=verification,
+                    worktree_path=task.get("worktreePath"),
+                    diff_summary=task.get("diffSummary"),
+                )
+                maybe_complete_request(root, binding.get("requestId"), generator="harness-verify-task")
+                if task.get("kind") != "audit" and task.get("handoff", {}).get("mergeRequired"):
+                    emit_follow_up_request(
+                        root,
+                        kind="audit",
+                        goal=f"Audit {args.task_id} after verification {overall_status}",
+                        source="runtime:verify",
+                        generator="harness-verify-task",
+                        parent_request_id=binding.get("requestId"),
+                        origin_task_id=args.task_id,
+                        origin_session_id=binding.get("lineage", {}).get("sessionId"),
+                        reason="verified work requires audit before merge",
+                        dedupe_key=f"audit:{args.task_id}:{overall_status}",
+                    )
+            else:
+                update_binding_state(
+                    root,
+                    binding.get("requestId"),
+                    args.task_id,
+                    "recoverable",
+                    reason="verification failed; runtime should recover or replan",
+                    generator="harness-verify-task",
+                    session_id=binding.get("lineage", {}).get("sessionId"),
+                    verification=verification,
+                    worktree_path=task.get("worktreePath"),
+                    diff_summary=task.get("diffSummary"),
+                    outcome={"status": "verification_failed"},
+                )
+                emit_follow_up_request(
+                    root,
+                    kind="replan",
+                    goal=f"Replan {args.task_id} after verification failure: {task.get('verificationSummary')}",
+                    source="runtime:verify",
+                    generator="harness-verify-task",
+                    parent_request_id=binding.get("requestId"),
+                    origin_task_id=args.task_id,
+                    origin_session_id=binding.get("lineage", {}).get("sessionId"),
+                    reason="verification failed",
+                    dedupe_key=f"replan:{args.task_id}:{task.get('verificationSummary')}",
+                )
 
     print(json.dumps(report, ensure_ascii=False, indent=2))
     return 0 if overall_status in {"pass", "skipped"} else 1
