@@ -1,8 +1,8 @@
 # Klein-Harness
 
-Repo-local, re-entrant `.harness` runtime for Codex-first agent workflows.
+A repo-local closed-loop `.harness` runtime for Codex-first agent work.
 
-Klein-Harness turns a repo into a closed-loop control surface:
+Klein-Harness turns a repository into a re-entrant control surface:
 
 - requests are append-only and machine-readable
 - runtime binds requests to tasks explicitly
@@ -239,7 +239,7 @@ Good feedback topics:
 
 ## English Summary
 
-Klein-Harness is a Codex-first `.harness` runtime that keeps request intake, task binding, session routing, worktree isolation, verification, and follow-up replans inside the repo as machine-readable state.
+Klein-Harness is a Codex-first closed-loop `.harness` runtime that keeps request intake, task binding, session routing, worktree isolation, verification, and follow-up requests inside the repo as machine-readable state.
 
 If you want the deeper protocol, read:
 
