@@ -22,6 +22,7 @@ REQUESTS=(
 )
 MANIFEST="$HARNESS_DIR/tooling-manifest.json"
 EXAMPLES_DIR="$(cd "$(dirname "$0")" && pwd)"
+VERSION_FILE="$(cd "$EXAMPLES_DIR/.." && pwd)/VERSION"
 REQUEST_QUEUE_PATH="$HARNESS_DIR/requests/queue.jsonl"
 REQUEST_ARCHIVE_DIR="$HARNESS_DIR/requests/archive"
 REQUEST_INDEX_PATH="$STATE_DIR/request-index.json"
@@ -36,6 +37,12 @@ RUNNER_STATE_PATH="$STATE_DIR/runner-state.json"
 RUNNER_HEARTBEATS_PATH="$STATE_DIR/runner-heartbeats.json"
 REQUEST_SUMMARY_PATH="$STATE_DIR/request-summary.json"
 LINEAGE_INDEX_PATH="$STATE_DIR/lineage-index.json"
+
+if [[ -f "$VERSION_FILE" ]]; then
+  RELEASE_VERSION="$(tr -d '[:space:]' < "$VERSION_FILE")"
+else
+  RELEASE_VERSION="0.0.0-dev"
+fi
 
 mkdir -p "$BIN_DIR" "$SCRIPTS_DIR" "$STATE_DIR" "$TEMPLATES_DIR" "$HARNESS_DIR/drift-log" "$HARNESS_DIR/verification-rules" "$STATE_DIR/runner-logs" "$REQUEST_ARCHIVE_DIR"
 
@@ -140,6 +147,7 @@ cat > "$MANIFEST" <<'JSON'
 {
   "schemaVersion": "1.0",
   "generator": "klein-harness",
+  "releaseVersion": "RELEASE_VERSION",
   "generatedAt": "INSTALL_TIME",
   "installed": [
     {
@@ -311,19 +319,21 @@ cat > "$MANIFEST" <<'JSON'
 }
 JSON
 
-python3 - <<'PY' "$MANIFEST" "${REQUESTS[@]}" "$REQUEST_SUMMARY_PATH" "$LINEAGE_INDEX_PATH"
+python3 - <<'PY' "$MANIFEST" "$RELEASE_VERSION" "${REQUESTS[@]}" "$REQUEST_SUMMARY_PATH" "$LINEAGE_INDEX_PATH"
 import json
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
 manifest_path = sys.argv[1]
-request_paths = sys.argv[2:5]
-state_paths = sys.argv[5:]
+release_version = sys.argv[2]
+request_paths = sys.argv[3:9]
+state_paths = sys.argv[9:]
 timestamp = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
 
 manifest = json.load(open(manifest_path))
 manifest["generatedAt"] = timestamp
+manifest["releaseVersion"] = release_version
 json.dump(manifest, open(manifest_path, "w"), ensure_ascii=False, indent=2)
 open(manifest_path, "a").write("\n")
 
@@ -343,6 +353,7 @@ for path in state_paths:
 PY
 
 echo "installed full harness operator toolset into $HARNESS_DIR"
+echo "version: v$RELEASE_VERSION"
 echo "primary local commands:"
 echo "  .harness/bin/harness-submit"
 echo "  .harness/bin/harness-tasks"

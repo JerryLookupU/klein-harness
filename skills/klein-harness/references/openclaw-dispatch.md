@@ -23,12 +23,13 @@
 ## 核心约束
 
 1. `tmux` 不是任务本身，而是可复用 worker node
-2. 主会话 / orchestrator 先写 `.harness/`，再派发命令
-3. `claim.nodeId` 与 `dispatch.targetSelector` 必须能对应到 node
-4. worker 不是自己凭空知道该干什么，它只承接已声明好的执行
-5. 是否 `resume` 旧 session，优先由程序 gate 根据任务关系和 session 记录做规则内判断，不交给 `gpt-5.3-codex` 自己猜
-6. pre-worker routing 默认先跑程序 gate；只有 gate 判定 `needsOrchestrator=true` 时，才把 routing fallback 交给 `gpt-5.4`
-7. 代码型 worker 默认优先在独立 worktree 中执行，不直接在共享仓库根目录落改动
+2. `tmux` session 是临时执行容器；退出后不应保留成长期状态，repo-local runner 应主动回收陈旧 `hr-*` session
+3. 主会话 / orchestrator 先写 `.harness/`，再派发命令
+4. `claim.nodeId` 与 `dispatch.targetSelector` 必须能对应到 node
+5. worker 不是自己凭空知道该干什么，它只承接已声明好的执行
+6. 是否 `resume` 旧 session，优先由程序 gate 根据任务关系和 session 记录做规则内判断，不交给 `gpt-5.3-codex` 自己猜
+7. pre-worker routing 默认先跑程序 gate；只有 gate 判定 `needsOrchestrator=true` 时，才把 routing fallback 交给 `gpt-5.4`
+8. 代码型 worker 默认优先在独立 worktree 中执行，不直接在共享仓库根目录落改动
 
 ## dispatch 最小契约
 

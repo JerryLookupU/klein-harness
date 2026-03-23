@@ -24,6 +24,14 @@ def run(cmd: list[str], *, cwd: Path, check: bool = True):
     return subprocess.run(cmd, cwd=str(cwd), check=check, text=True, capture_output=True)
 
 
+def git_head_available(root: Path) -> bool:
+    try:
+        run(["git", "rev-parse", "--verify", "HEAD"], cwd=root)
+        return True
+    except subprocess.CalledProcessError:
+        return False
+
+
 def git_ref_exists(root: Path, ref_name: str) -> bool:
     try:
         run(["git", "rev-parse", "--verify", ref_name], cwd=root)
@@ -32,8 +40,18 @@ def git_ref_exists(root: Path, ref_name: str) -> bool:
         return False
 
 
+def ref_is_unborn(ref_name: str | None) -> bool:
+    return (ref_name or "").strip() == "UNBORN_HEAD"
+
+
 def worktree_is_git_checkout(path: Path) -> bool:
     return path.exists() and (path / ".git").exists()
+
+
+def summarize_git_error(exc: subprocess.CalledProcessError) -> str:
+    stderr = (exc.stderr or "").strip()
+    stdout = (exc.stdout or "").strip()
+    return stderr or stdout or str(exc)
 
 
 def create_or_attach_worktree(root: Path, *, worktree_path: Path, branch_name: str, base_ref: str) -> dict:
@@ -79,9 +97,23 @@ def main():
     worktree_path = (root / worktree_rel).resolve()
     exists = worktree_is_git_checkout(worktree_path)
     create_result = {"created": False, "attached": False}
+    environment_status = "ready"
+    environment_reason = None
     if dedicated and args.create and not exists:
-        create_result = create_or_attach_worktree(root, worktree_path=worktree_path, branch_name=branch_name, base_ref=base_ref)
-        exists = worktree_is_git_checkout(worktree_path)
+        if ref_is_unborn(base_ref) or not git_head_available(root):
+            environment_status = "degraded"
+            environment_reason = "git HEAD is unborn; dedicated worktree creation is deferred until the repo has an initial commit"
+        else:
+            try:
+                create_result = create_or_attach_worktree(root, worktree_path=worktree_path, branch_name=branch_name, base_ref=base_ref)
+                exists = worktree_is_git_checkout(worktree_path)
+            except subprocess.CalledProcessError as exc:
+                environment_status = "degraded"
+                environment_reason = f"git worktree add failed: {summarize_git_error(exc)}"
+
+    if dedicated and not exists and environment_reason is None:
+        environment_status = "degraded"
+        environment_reason = "dedicated worktree is missing; execution falls back to the repo root until the worktree is prepared"
 
     timestamp = now_iso()
     status = "worktree_prepared" if exists else "worktree_missing"
@@ -100,6 +132,8 @@ def main():
         "created": create_result["created"],
         "attached": create_result["attached"],
         "status": status,
+        "environmentStatus": environment_status,
+        "environmentReason": environment_reason,
         "recommendedCwd": str(worktree_path if exists else root),
         "commands": {
             "create": f"git worktree add {worktree_path} -b {branch_name} {base_ref}" if base_ref else None,
@@ -110,6 +144,8 @@ def main():
     if args.write_back:
         task["worktreePreparedAt"] = timestamp if exists else task.get("worktreePreparedAt")
         task["worktreeStatus"] = status
+        task["worktreeEnvironmentStatus"] = environment_status
+        task["worktreeEnvironmentReason"] = environment_reason
         task["integrationBranch"] = integration_branch
         task["executionCwd"] = worktree_rel if exists else "."
         if exists and task.get("status") in {"queued", "bound"}:
@@ -124,6 +160,8 @@ def main():
                 "requiresDedicatedWorktree": dedicated,
                 "executionCwd": task.get("executionCwd"),
                 "integrationBranch": integration_branch,
+                "environmentStatus": environment_status,
+                "environmentReason": environment_reason,
             },
         )
         lineage_event(
@@ -139,6 +177,8 @@ def main():
                 "integrationBranch": integration_branch,
                 "created": create_result["created"],
                 "attached": create_result["attached"],
+                "environmentStatus": environment_status,
+                "environmentReason": environment_reason,
             },
         )
         result["wroteBack"] = True

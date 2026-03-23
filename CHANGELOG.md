@@ -1,6 +1,18 @@
 # Changelog
 
-## v0.2.1 - Unreleased
+## v0.2.2 - 2026-03-23
+
+Patch release for runtime degradation handling and operator visibility.
+
+### Highlights
+
+- Downgraded missing-worktree and `UNBORN_HEAD` cases to structured environment degradation instead of task failure noise.
+- Made runner distinguish task failure classes from degraded environment state during finalize.
+- Converged repo-local `tmux` lifecycle so stale `hr-*` sessions are cleaned instead of accumulating as operator-visible residue.
+- Filled bootstrap gaps so a freshly initialized repo now gets minimal control-plane ledgers and can safely run `tick` / `daemon` without hand-created `task-pool.json`.
+- Added install-time release version stamping into `.harness/tooling-manifest.json`.
+
+## v0.2.1 - 2026-03-23
 
 Post-release cleanup and UX compression on top of `v0.2`.
 

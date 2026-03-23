@@ -67,7 +67,7 @@ That is how it avoids self-intersection, unsafe resume, and lost context.
 
 ## Quick Start
 
-Install the skills and helper commands:
+Install the skills and canonical wrappers:
 
 ```bash
 ./install.sh
@@ -118,6 +118,7 @@ harness-tasks /path/to/project
 harness-task /path/to/project T-001
 harness-task /path/to/project T-001 logs --detail
 harness-control /path/to/project daemon restart
+harness-control /path/to/project task T-001 restart-from-stage queued --reason "clean retry"
 harness-control /path/to/project project archive --reason "loop retired"
 ```
 
@@ -246,7 +247,7 @@ harness-control /path/to/project task T-003 checkpoint --reason "operator wants 
 harness-control /path/to/project daemon status
 ```
 
-Advanced and compatibility helpers still exist, but they are no longer the primary UX:
+Expert/project-local surfaces still exist, but they are no longer the primary UX:
 
 ```bash
 .harness/bin/harness-ops . top
@@ -263,10 +264,11 @@ Notes:
 - the repo-local runtime / daemon is the scheduler and source of truth
 - `--dispatch-mode tmux` is the current default execution backend
 - `--dispatch-mode print` is a non-executing compatibility / debug backend
+- tmux is treated as ephemeral worker infrastructure; exited repo-local `hr-*` sessions should be auto-cleaned by runner paths
 - workers should not merge or push directly; runtime serializes local integration through `integrationBranch`
 - git conflict is treated as a structured harness event, not as a late remote-push surprise
 - `harness-runner daemon` keeps ticking and refreshing hot state on a fixed interval
-- older helper names remain available as compatibility / expert shims, but they are not the primary docs surface
+- older helper names remain available as compatibility shims, but the canonical docs surface is always the 4 commands above
 - use `--no-daemon` when you want a manual or fully operator-driven session
 - downstream workers should prefer hot state -> compact log md -> raw log
 - worker/backend health and runtime health are intentionally surfaced separately
@@ -311,6 +313,7 @@ harness-tasks /path/to/project
 harness-task /path/to/project T-001
 harness-control /path/to/project daemon status
 harness-control /path/to/project task T-001 checkpoint --reason "safe pause"
+harness-control /path/to/project task T-001 restart-from-stage queued --reason "clean retry"
 harness-control /path/to/project project archive --reason "loop retired"
 ```
 
@@ -342,6 +345,7 @@ Primary docs:
 - `docs/context-rot-and-drift-guards.md`
 - `docs/four-command-surface.md`
 - `docs/guard-loop.md`
+- `docs/meta-spec.md`
 - `docs/daily-todo-and-completion-gate.md`
 - `docs/checkpoint-provenance.md`
 - `docs/runtime-request-spec.md`

@@ -88,6 +88,35 @@ def tmux_session_running(session_name: str) -> bool:
         return False
 
 
+def has_live_runner_session(task: dict, heartbeats: dict) -> bool:
+    task_id = task.get("taskId")
+    if not task_id:
+        return False
+    heartbeat = heartbeats.get(task_id, {})
+    tmux_name = task.get("claim", {}).get("tmuxSession") or heartbeat.get("tmuxSession")
+    return bool(tmux_name and tmux_session_running(tmux_name))
+
+
+def is_terminal_for_dispatch(task: dict) -> bool:
+    status = (task.get("status") or "").lower()
+    if status in {"completed", "verified", "pass", "skipped"}:
+        return True
+    verification_status = (task.get("verificationStatus") or "").lower()
+    if verification_status in {"pass", "skipped"} and status in TASK_ACTIVE_STATUSES:
+        return True
+    return False
+
+
+def is_recoverable_auto_dispatch_allowed(task: dict, heartbeats: dict) -> bool:
+    if task.get("status") != "recoverable":
+        return True
+    if (task.get("verificationStatus") or "").lower() == "fail":
+        return False
+    if has_live_runner_session(task, heartbeats):
+        return False
+    return True
+
+
 def compact_log_entry(log_index: dict, task_id: str):
     logs_by_task = log_index.get("logsByTaskId", {})
     if isinstance(logs_by_task, dict):
@@ -187,9 +216,53 @@ def find_recoverable_tasks(tasks: list[dict], heartbeats: dict, stale_after_seco
 
 
 def make_tmux_session_name(task_id: str, project_name: str) -> str:
-    safe = project_name[:20].replace(" ", "-")
+    safe = project_tmux_fragment(project_name)
     ts = datetime.now().strftime("%m%d-%H%M%S")
     return f"hr-{task_id}-{safe}-{ts}"
+
+
+def project_tmux_fragment(project_name: str) -> str:
+    return project_name[:20].replace(" ", "-")
+
+
+def session_matches_project(session_name: str, project_name: str) -> bool:
+    fragment = project_tmux_fragment(project_name)
+    return session_name.startswith("hr-") and f"-{fragment}-" in session_name
+
+
+def referenced_tmux_sessions(tasks: list[dict], heartbeats: dict) -> set[str]:
+    sessions = set()
+    for task in tasks:
+        task_id = task.get("taskId")
+        claim = task.get("claim", {}) if isinstance(task.get("claim"), dict) else {}
+        heartbeat = heartbeats.get(task_id, {}) if task_id else {}
+        tmux_name = claim.get("tmuxSession") or heartbeat.get("tmuxSession")
+        if tmux_name and not str(tmux_name).startswith("print:"):
+            sessions.add(tmux_name)
+    return sessions
+
+
+def gc_project_tmux_sessions(root: Path, tasks: list[dict], heartbeats: dict, preserve_sessions: set[str] | None = None) -> list[str]:
+    preserve = {
+        session
+        for session in (preserve_sessions or set())
+        if session and not str(session).startswith("print:")
+    }
+    preserve.update(
+        session
+        for session in referenced_tmux_sessions(tasks, heartbeats)
+        if tmux_session_running(session)
+    )
+    killed = []
+    for session in tmux_list_sessions():
+        if not session_matches_project(session, root.name):
+            continue
+        if session in preserve:
+            continue
+        subprocess.run(["tmux", "kill-session", "-t", session], capture_output=True)
+        if not tmux_session_alive(session):
+            killed.append(session)
+    return killed
 
 
 def build_codex_command(session_id: str | None, execution_cwd: str) -> list[str]:
@@ -231,6 +304,44 @@ def execution_cwd_for_task(project_root: Path, task: dict) -> Path:
         if worktree_path.exists():
             return worktree_path
     return project_root
+
+
+def environment_summary_for_task(task: dict) -> dict:
+    reasons = []
+    worktree_status = task.get("worktreeEnvironmentStatus")
+    worktree_reason = task.get("worktreeEnvironmentReason")
+    diff_status = task.get("diffSummaryStatus")
+    diff_reason = task.get("diffSummaryReason")
+
+    if worktree_status == "degraded":
+        reasons.append(worktree_reason or "dedicated worktree is not ready")
+    elif task.get("worktreeStatus") == "worktree_missing":
+        reasons.append("dedicated worktree is missing")
+
+    if diff_status == "degraded":
+        reasons.append(diff_reason or "diff baseline is unavailable")
+
+    deduped_reasons = []
+    for item in reasons:
+        if item and item not in deduped_reasons:
+            deduped_reasons.append(item)
+
+    return {
+        "status": "degraded" if deduped_reasons else "ready",
+        "reasons": deduped_reasons,
+        "worktreeStatus": task.get("worktreeStatus"),
+        "diffSummaryStatus": diff_status,
+    }
+
+
+def manual_run_guard_override_reasons(guard_state: dict) -> list[str]:
+    blockers = list(guard_state.get("blockers") or [])
+    if not blockers:
+        return []
+    allowed = {"unknown dirty worktree blocks automation"}
+    if any(item not in allowed for item in blockers):
+        return []
+    return [item for item in blockers if item in allowed]
 
 
 def session_binding_for_resume(task: dict, session_registry: dict, session_id: str | None) -> dict | None:
@@ -343,6 +454,20 @@ def dispatch_task(root: Path, task: dict, route_decision: dict, project_name: st
         f'python3 "{runner_py}" finalize "{root}" "{task_id}" '
         f'--tmux-session "{tmux_name}" --runner-status "$runner_status"'
     )
+    runner_preamble = [
+        f'echo "[runner] task={task_id} started at $(date \'+%Y-%m-%d %H:%M:%S\')"',
+        f'echo "[runner] executionCwd={execution_cwd}"',
+        f'echo "[runner] worktreePath={task.get("worktreePath") or "."}"',
+    ]
+    if prepared_worktree:
+        runner_preamble.append(f'echo "[runner] worktreeStatus={prepared_worktree.get("status")}"')
+        if prepared_worktree.get("environmentStatus") == "degraded":
+            runner_preamble.append(
+                f'echo "[runner] environmentStatus={prepared_worktree.get("environmentStatus")} reason={prepared_worktree.get("environmentReason")}"'
+            )
+    runner_preamble.append(
+        f'echo "[runner] integrationBranch={task.get("integrationBranch") or task.get("dispatch", {}).get("integrationBranch") or "-"}"'
+    )
 
     runner_script.write_text(
         f"#!/usr/bin/env bash\n"
@@ -350,10 +475,8 @@ def dispatch_task(root: Path, task: dict, route_decision: dict, project_name: st
         f'cd "{execution_cwd}"\n'
         f'exec > >(tee -a "{log_path}") 2>&1\n'
         f'trap \'status=$?; trap - EXIT; {heartbeat_cmd} --phase exited --exit-code \"$status\" || true; exit \"$status\"\' EXIT\n'
-        f'echo "[runner] task={task_id} started at $(date \'+%Y-%m-%d %H:%M:%S\')"\n'
-        f'echo "[runner] executionCwd={execution_cwd}"\n'
-        f'echo "[runner] worktreePath={task.get("worktreePath") or "."}"\n'
-        f'echo "[runner] integrationBranch={task.get("integrationBranch") or task.get("dispatch", {}).get("integrationBranch") or "-"}"\n'
+        + "\n".join(runner_preamble)
+        + "\n"
         f'{heartbeat_cmd} --phase running\n'
         f'runner_status=0\n'
         f'{" ".join(codex_cmd)} < "{prompt_path}" || runner_status=$?\n'
@@ -395,7 +518,7 @@ def dispatch_task(root: Path, task: dict, route_decision: dict, project_name: st
 
     if dispatch_mode == "tmux":
         subprocess.run(["tmux", "new-session", "-d", "-s", tmux_name, f"bash {runner_script}"], check=True)
-        subprocess.run(["tmux", "set-option", "-t", tmux_name, "remain-on-exit", "on"], capture_output=True)
+        subprocess.run(["tmux", "set-option", "-t", tmux_name, "remain-on-exit", "off"], capture_output=True)
 
     return {
         "taskId": task_id,
@@ -411,6 +534,8 @@ def dispatch_task(root: Path, task: dict, route_decision: dict, project_name: st
         "dispatchedAt": now_iso(),
         "gateReason": route_decision.get("gateReason"),
         "routeDecision": route_decision,
+        "preparedWorktree": prepared_worktree,
+        "environment": environment_summary_for_task(task),
     }
 
 
@@ -706,6 +831,13 @@ def cmd_tick(root: Path, trigger: str = "shell", dispatch_mode: str = "tmux"):
     process_merge_queue(root, generator="harness-runner")
     task_pool = load_json(files["harness"] / "task-pool.json")
     tasks = task_pool.get("tasks", [])
+    daemon_session = resolve_daemon_session(state_dir)
+    tmux_gc = gc_project_tmux_sessions(
+        root,
+        tasks,
+        heartbeats,
+        preserve_sessions={daemon_session} if daemon_session else None,
+    )
     guard_state = global_guard_state(
         root,
         files,
@@ -736,6 +868,8 @@ def cmd_tick(root: Path, trigger: str = "shell", dispatch_mode: str = "tmux"):
 
     for task in recoverable:
         try:
+            if is_terminal_for_dispatch(task) or not is_recoverable_auto_dispatch_allowed(task, heartbeats):
+                continue
             if not guard_state.get("safeToExecute"):
                 blocked_routes.append({"taskId": task["taskId"], "gateStatus": "blocked", "gateReason": "; ".join(guard_state.get("blockers", []))})
                 continue
@@ -786,7 +920,7 @@ def cmd_tick(root: Path, trigger: str = "shell", dispatch_mode: str = "tmux"):
                     errors=errors,
                     blocked_routes=blocked_routes,
                 )
-                print(json.dumps({"ok": True, "liveRuns": len(live_runs), "dispatched": [], "recoverable": len(recoverable), "dispatchable": len(dispatchable), "blocked": blocked_routes, "errors": errors, "guardState": guard_state}, ensure_ascii=False, indent=2))
+                print(json.dumps({"ok": True, "liveRuns": len(live_runs), "dispatched": [], "recoverable": len(recoverable), "dispatchable": len(dispatchable), "blocked": blocked_routes, "errors": errors, "guardState": guard_state, "tmuxGc": tmux_gc}, ensure_ascii=False, indent=2))
                 return 0
             preflight = evaluate_dispatch_preflight(
                 task,
@@ -808,7 +942,7 @@ def cmd_tick(root: Path, trigger: str = "shell", dispatch_mode: str = "tmux"):
                     errors=errors,
                     blocked_routes=blocked_routes,
                 )
-                print(json.dumps({"ok": True, "liveRuns": len(live_runs), "dispatched": [], "recoverable": len(recoverable), "dispatchable": len(dispatchable), "blocked": blocked_routes, "errors": errors}, ensure_ascii=False, indent=2))
+                print(json.dumps({"ok": True, "liveRuns": len(live_runs), "dispatched": [], "recoverable": len(recoverable), "dispatchable": len(dispatchable), "blocked": blocked_routes, "errors": errors, "tmuxGc": tmux_gc}, ensure_ascii=False, indent=2))
                 return 0
             route_decision = call_route_session(route_session_py, root, task["taskId"])
             if preflight.get("forceFresh") and route_decision.get("resumeStrategy") == "resume":
@@ -852,6 +986,7 @@ def cmd_tick(root: Path, trigger: str = "shell", dispatch_mode: str = "tmux"):
         "dispatchable": len(latest_dispatchable),
         "blocked": blocked_routes,
         "guardState": guard_state,
+        "tmuxGc": tmux_gc,
         "errors": errors,
     }
     print(json.dumps(result, ensure_ascii=False, indent=2))
@@ -872,24 +1007,55 @@ def cmd_run(root: Path, task_id: str, trigger: str = "shell", dispatch_mode: str
     heartbeats = load_heartbeats(state_dir)
     log_index = load_optional_json(files["log_index_path"], {})
     session_registry = load_json(files["session_registry_path"])
-    guard_state = global_guard_state(
-        root,
-        files,
-        task_pool=task_pool,
-        session_registry=session_registry,
-        heartbeats=heartbeats,
-        runner_state=load_optional_json(files["runner_state_path"], {}),
-        request_summary=request_summary,
-        policy_summary=policy_summary,
-    )
+    guard_override_reasons = []
+    tmux_gc: list[str] = []
 
     try:
         process_merge_queue(root, generator="harness-runner")
         task_pool = load_json(files["harness"] / "task-pool.json")
+        daemon_session = resolve_daemon_session(state_dir)
+        tmux_gc = gc_project_tmux_sessions(
+            root,
+            task_pool.get("tasks", []),
+            heartbeats,
+            preserve_sessions={daemon_session} if daemon_session else None,
+        )
         task = find_task(task_pool.get("tasks", []), task_id)
+        guard_state = global_guard_state(
+            root,
+            files,
+            task_pool=task_pool,
+            session_registry=session_registry,
+            heartbeats=heartbeats,
+            runner_state=load_optional_json(files["runner_state_path"], {}),
+            request_summary=request_summary,
+            policy_summary=policy_summary,
+        )
+        if has_live_runner_session(task, heartbeats):
+            print(json.dumps({
+                "ok": True,
+                "taskId": task_id,
+                "status": task.get("status"),
+                "verificationStatus": task.get("verificationStatus"),
+                "note": "dispatch skipped: live runner session exists",
+                "tmuxGc": tmux_gc,
+            }, ensure_ascii=False, indent=2))
+            return 0
+        if is_terminal_for_dispatch(task):
+            print(json.dumps({
+                "ok": True,
+                "taskId": task_id,
+                "status": task.get("status"),
+                "verificationStatus": task.get("verificationStatus"),
+                "note": "dispatch skipped: task already terminal by current task-pool state",
+                "tmuxGc": tmux_gc,
+            }, ensure_ascii=False, indent=2))
+            return 0
         if not guard_state.get("safeToExecute"):
-            print(json.dumps({"ok": False, "taskId": task_id, "gateStatus": "blocked", "gateReason": "; ".join(guard_state.get("blockers", [])), "guardState": guard_state}, ensure_ascii=False, indent=2))
-            return 1
+            guard_override_reasons = manual_run_guard_override_reasons(guard_state)
+            if not guard_override_reasons:
+                print(json.dumps({"ok": False, "taskId": task_id, "gateStatus": "blocked", "gateReason": "; ".join(guard_state.get("blockers", [])), "guardState": guard_state, "tmuxGc": tmux_gc}, ensure_ascii=False, indent=2))
+                return 1
         preflight = evaluate_dispatch_preflight(
             task,
             request_summary=request_summary,
@@ -899,9 +1065,13 @@ def cmd_run(root: Path, task_id: str, trigger: str = "shell", dispatch_mode: str
             policy_summary=policy_summary,
         )
         if not preflight.get("ok"):
-            print(json.dumps({"ok": False, "taskId": task_id, "gateStatus": "blocked", "gateReason": "; ".join(preflight.get("blocked", []))}, ensure_ascii=False, indent=2))
+            print(json.dumps({"ok": False, "taskId": task_id, "gateStatus": "blocked", "gateReason": "; ".join(preflight.get("blocked", [])), "tmuxGc": tmux_gc}, ensure_ascii=False, indent=2))
             return 1
         route_decision = call_route_session(route_session_py, root, task_id)
+        if guard_override_reasons:
+            prior_reason = route_decision.get("gateReason")
+            override_note = f"manual run override: {'; '.join(guard_override_reasons)}"
+            route_decision["gateReason"] = f"{prior_reason}; {override_note}" if prior_reason else override_note
         if preflight.get("forceFresh") and route_decision.get("resumeStrategy") == "resume":
             route_decision["resumeStrategy"] = "fresh"
             route_decision["preferredResumeSessionId"] = None
@@ -919,15 +1089,16 @@ def cmd_run(root: Path, task_id: str, trigger: str = "shell", dispatch_mode: str
                 "gateStatus": route_decision.get("gateStatus"),
                 "gateReason": route_decision.get("gateReason"),
                 "needsOrchestrator": route_decision.get("needsOrchestrator"),
+                "tmuxGc": tmux_gc,
             }, ensure_ascii=False, indent=2))
             return 1
         run = dispatch_task(root, task, route_decision, root.name, state_dir, log_dir, dispatch_mode)
         claim_dispatched_task(root, task_id, run, lifecycle_status=lifecycle_status)
         write_heartbeat(state_dir, task_id, run["tmuxSession"], phase=lifecycle_status)
-        print(json.dumps({"ok": True, "dispatched": run}, ensure_ascii=False, indent=2))
+        print(json.dumps({"ok": True, "dispatched": run, "guardOverrideReasons": guard_override_reasons, "tmuxGc": tmux_gc}, ensure_ascii=False, indent=2))
         return 0
     except Exception as exc:
-        print(json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False, indent=2))
+        print(json.dumps({"ok": False, "error": str(exc), "tmuxGc": tmux_gc}, ensure_ascii=False, indent=2))
         return 1
 
 
@@ -957,6 +1128,7 @@ def cmd_finalize(root: Path, task_id: str, runner_status: int, tmux_session: str
         request_summary=request_summary,
         compact_log=compact_log_entry(log_index, task_id),
     )
+    failure_class = None
 
     if runner_status == 0 and verification_status in {"pass", "skipped", None} and pre_finalize.get("status") == "pass":
         merge_required = bool(task.get("mergeRequired") or task.get("handoff", {}).get("mergeRequired"))
@@ -1015,6 +1187,12 @@ def cmd_finalize(root: Path, task_id: str, runner_status: int, tmux_session: str
                     outcome={"status": "completed"},
                 )
     else:
+        if runner_status != 0:
+            failure_class = "dispatch_failure"
+        elif verification_status == "fail":
+            failure_class = "verification_failure"
+        else:
+            failure_class = "finalize_guard_failure"
         task["status"] = "recoverable"
         task["recoverableAt"] = now_iso()
         if pre_finalize.get("status") == "fail":
@@ -1084,6 +1262,7 @@ def cmd_finalize(root: Path, task_id: str, runner_status: int, tmux_session: str
     refreshed_bindings = request_bindings_for_task(refreshed_task_map, task_id)
     primary_binding = refreshed_bindings[-1] if refreshed_bindings else None
     route_decision = (primary_binding or {}).get("route")
+    refreshed_environment = environment_summary_for_task(refreshed_task)
     compact_log = build_compact_log_artifact(
         root,
         refreshed_task,
@@ -1102,6 +1281,11 @@ def cmd_finalize(root: Path, task_id: str, runner_status: int, tmux_session: str
                 "finalStatus": refreshed_task.get("status"),
                 "mergeStatus": refreshed_task.get("mergeStatus"),
                 "verificationStatus": verification_status,
+                "failureClass": failure_class,
+                "environmentStatus": refreshed_environment.get("status"),
+                "environmentReasons": refreshed_environment.get("reasons"),
+                "worktreeStatus": refreshed_environment.get("worktreeStatus"),
+                "diffSummaryStatus": refreshed_environment.get("diffSummaryStatus"),
                 "compactLogPath": str(compact_log["path"].relative_to(root)),
             },
             ensure_ascii=False,
@@ -1308,6 +1492,14 @@ def cmd_daemon(root: Path, interval: int = 60, dispatch_mode: str = "tmux", fore
             return 0
 
     existing = resolve_daemon_session(state_dir)
+    task_pool = load_json(files["harness"] / "task-pool.json")
+    heartbeats = load_heartbeats(state_dir)
+    tmux_gc = gc_project_tmux_sessions(
+        root,
+        task_pool.get("tasks", []),
+        heartbeats,
+        preserve_sessions={existing} if existing and not replace else None,
+    )
     if existing and tmux_session_running(existing):
         if not replace:
             write_daemon_state(
@@ -1319,7 +1511,7 @@ def cmd_daemon(root: Path, interval: int = 60, dispatch_mode: str = "tmux", fore
                 log_path=paths["log"],
                 last_error=None,
             )
-            print(json.dumps({"ok": True, "status": "already-running", "sessionName": existing, "logPath": str(paths["log"])}, ensure_ascii=False, indent=2))
+            print(json.dumps({"ok": True, "status": "already-running", "sessionName": existing, "logPath": str(paths["log"]), "tmuxGc": tmux_gc}, ensure_ascii=False, indent=2))
             return 0
         subprocess.run(["tmux", "kill-session", "-t", existing], capture_output=True)
 
@@ -1336,7 +1528,7 @@ def cmd_daemon(root: Path, interval: int = 60, dispatch_mode: str = "tmux", fore
     paths["script"].write_text(script_body)
     paths["script"].chmod(0o755)
     subprocess.run(["tmux", "new-session", "-d", "-s", session, f"bash {paths['script']}"], check=True)
-    subprocess.run(["tmux", "set-option", "-t", session, "remain-on-exit", "on"], capture_output=True)
+    subprocess.run(["tmux", "set-option", "-t", session, "remain-on-exit", "off"], capture_output=True)
     paths["session"].write_text(session + "\n")
     write_daemon_state(
         state_dir,
@@ -1347,7 +1539,7 @@ def cmd_daemon(root: Path, interval: int = 60, dispatch_mode: str = "tmux", fore
         log_path=paths["log"],
         last_error=None,
     )
-    print(json.dumps({"ok": True, "status": "started", "sessionName": session, "logPath": str(paths["log"])}, ensure_ascii=False, indent=2))
+    print(json.dumps({"ok": True, "status": "started", "sessionName": session, "logPath": str(paths["log"]), "tmuxGc": tmux_gc}, ensure_ascii=False, indent=2))
     return 0
 
 
@@ -1364,6 +1556,9 @@ def cmd_daemon_stop(root: Path):
         paths["session"].unlink()
     if paths["script"].exists():
         paths["script"].unlink()
+    task_pool = load_json(files["harness"] / "task-pool.json")
+    heartbeats = load_heartbeats(state_dir)
+    tmux_gc = gc_project_tmux_sessions(root, task_pool.get("tasks", []), heartbeats)
     write_daemon_state(
         state_dir,
         status="stopped",
@@ -1373,7 +1568,7 @@ def cmd_daemon_stop(root: Path):
         log_path=paths["log"],
         last_error=None,
     )
-    print(json.dumps({"ok": True, "stopped": stopped, "sessionName": session}, ensure_ascii=False, indent=2))
+    print(json.dumps({"ok": True, "stopped": stopped, "sessionName": session, "tmuxGc": tmux_gc}, ensure_ascii=False, indent=2))
     return 0
 
 

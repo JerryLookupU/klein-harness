@@ -22,6 +22,7 @@ submit
 
 - triggers only wake the guard
 - the guard owns safety boundaries, not `tmux`
+- the guard may converge stale repo-local tmux sessions before dispatch
 - execution is blocked when the control plane is unsure
 - summary state is the default operator surface
 - semantic success requires gate-aligned evidence, not only exit code
@@ -36,6 +37,9 @@ Before non-interactive execution the guard checks:
 - actionable todo still exists
 - completion gate is not already satisfied
 - worktree / merge state is coherent
+
+Operator-initiated `harness-runner run` / `recover` may override automation-only dirty blockers,
+but they do not override task drift, failed verification, satisfied completion gate, or superseded-task blockers.
 
 Current implementation note:
 

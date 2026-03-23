@@ -8,6 +8,8 @@ TMP_ROOT="$(mktemp -d)"
 CODEX_HOME_DIR="$TMP_ROOT/codex"
 PROJECT_ROOT="$TMP_ROOT/release-smoke-project"
 AUTO_INIT_ROOT="$TMP_ROOT/auto-init-project"
+EMPTY_INIT_ROOT="$TMP_ROOT/empty-init-project"
+UNBORN_ROOT="$TMP_ROOT/unborn-worktree-project"
 
 cleanup() {
   rm -rf "$TMP_ROOT"
@@ -20,6 +22,27 @@ export PATH="$CODEX_HOME_DIR/bin:$PATH"
 "$REPO_ROOT/install.sh" --dest "$CODEX_HOME_DIR/skills" --bin-dir "$CODEX_HOME_DIR/bin" --no-shell-rc --force >/dev/null
 AUTO_INIT_JSON="$TMP_ROOT/auto-init-submit.json"
 harness-submit "$AUTO_INIT_ROOT" --goal "Auto-init smoke request" --source smoke > "$AUTO_INIT_JSON"
+mkdir -p "$EMPTY_INIT_ROOT"
+git -C "$EMPTY_INIT_ROOT" init -b main >/dev/null
+git -C "$EMPTY_INIT_ROOT" config user.name "Klein Smoke"
+git -C "$EMPTY_INIT_ROOT" config user.email "smoke@example.com"
+harness-init "$EMPTY_INIT_ROOT" >/dev/null
+for required_file in \
+  "$EMPTY_INIT_ROOT/.harness/features.json" \
+  "$EMPTY_INIT_ROOT/.harness/work-items.json" \
+  "$EMPTY_INIT_ROOT/.harness/standards.md" \
+  "$EMPTY_INIT_ROOT/.harness/progress.md" \
+  "$EMPTY_INIT_ROOT/.harness/verification-rules/manifest.json" \
+  "$EMPTY_INIT_ROOT/.harness/spec.json" \
+  "$EMPTY_INIT_ROOT/.harness/task-pool.json" \
+  "$EMPTY_INIT_ROOT/.harness/context-map.json" \
+  "$EMPTY_INIT_ROOT/.harness/lineage.jsonl" \
+  "$EMPTY_INIT_ROOT/.harness/session-registry.json"; do
+  test -f "$required_file"
+done
+"$EMPTY_INIT_ROOT/.harness/bin/harness-runner" tick "$EMPTY_INIT_ROOT" --dispatch-mode print >/dev/null
+"$EMPTY_INIT_ROOT/.harness/bin/harness-runner" daemon "$EMPTY_INIT_ROOT" --interval 1 --dispatch-mode print --replace >/dev/null
+"$EMPTY_INIT_ROOT/.harness/bin/harness-runner" daemon-stop "$EMPTY_INIT_ROOT" >/dev/null
 harness-init "$PROJECT_ROOT" >/dev/null
 
 mkdir -p "$PROJECT_ROOT"
@@ -393,6 +416,10 @@ MANAGED_DIRTY_GUARD_JSON="$TMP_ROOT/managed-dirty-guard.json"
 MANAGED_DIRTY_WORKTREE_JSON="$TMP_ROOT/managed-dirty-worktree.json"
 CONTROL_PROJECT_ARCHIVE_JSON="$TMP_ROOT/control-project-archive.json"
 FINAL_COMPLETION_GATE_JSON="$TMP_ROOT/final-completion-gate.json"
+UNBORN_PREPARE_JSON="$TMP_ROOT/unborn-prepare.json"
+UNBORN_DIFF_JSON="$TMP_ROOT/unborn-diff.json"
+UNBORN_FINALIZE_JSON="$TMP_ROOT/unborn-finalize.json"
+UNBORN_RUN_JSON="$TMP_ROOT/unborn-run.json"
 
 harness-submit "$PROJECT_ROOT" --kind implementation --goal "Apply smoke runtime patch" --source smoke > "$SUBMIT_JSON"
 REQUEST_ID="$(python3 - <<'PY' "$SUBMIT_JSON"
@@ -460,6 +487,83 @@ git -C "$PROJECT_ROOT/.worktrees/T-101-rca-repair" commit -m "T-101 smoke repair
 "$PROJECT_ROOT/.harness/bin/harness-verify-task" T-101 "$PROJECT_ROOT" --write-back >/dev/null
 python3 "$PROJECT_ROOT/.harness/scripts/runner.py" finalize "$PROJECT_ROOT" T-101 --tmux-session "print:T-101" --runner-status 0 > "$REPAIR_FINALIZE_JSON"
 
+mkdir -p "$UNBORN_ROOT"
+git -C "$UNBORN_ROOT" init -b main >/dev/null
+git -C "$UNBORN_ROOT" config user.name "Klein Smoke"
+git -C "$UNBORN_ROOT" config user.email "smoke@example.com"
+harness-init "$UNBORN_ROOT" >/dev/null
+
+cat > "$UNBORN_ROOT/.harness/task-pool.json" <<'EOF'
+{
+  "schemaVersion": "1.0",
+  "generator": "smoke-test",
+  "generatedAt": "2026-03-23T00:10:00+08:00",
+  "integrationBranch": "main",
+  "tasks": [
+    {
+      "taskId": "T-200",
+      "workItemId": "WI-200",
+      "blockId": "TB-200",
+      "kind": "feature",
+      "roleHint": "worker",
+      "title": "Unborn worktree degrade smoke",
+      "summary": "Keep env gaps degraded instead of failing the task.",
+      "status": "queued",
+      "priority": "P1",
+      "planningStage": "execution-ready",
+      "baseRef": "UNBORN_HEAD",
+      "branchName": "task/T-200-unborn-smoke",
+      "worktreePath": ".worktrees/T-200-unborn-smoke",
+      "diffBase": "UNBORN_HEAD",
+      "ownedPaths": [
+        "src/unborn-smoke.ts"
+      ],
+      "verificationRuleIds": [],
+      "handoff": {
+        "mergeRequired": false
+      },
+      "claim": {}
+    }
+  ]
+}
+EOF
+
+cat > "$UNBORN_ROOT/.harness/session-registry.json" <<'EOF'
+{
+  "schemaVersion": "1.0",
+  "generator": "smoke-test",
+  "generatedAt": "2026-03-23T00:10:00+08:00",
+  "orchestrationSessionId": "orch:unborn-smoke:S-001",
+  "orchestrationSessions": [
+    {
+      "sessionId": "orch:unborn-smoke:S-001",
+      "model": "gpt-5.4",
+      "role": "orchestrator",
+      "status": "ready"
+    }
+  ],
+  "sessions": [],
+  "activeBindings": [],
+  "recoverableBindings": []
+}
+EOF
+
+python3 "$UNBORN_ROOT/.harness/scripts/prepare-worktree.py" --root "$UNBORN_ROOT" --task-id T-200 --create --write-back > "$UNBORN_PREPARE_JSON"
+python3 "$UNBORN_ROOT/.harness/scripts/diff-summary.py" --root "$UNBORN_ROOT" --task-id T-200 --write-back > "$UNBORN_DIFF_JSON"
+echo "manual dirty root" > "$UNBORN_ROOT/local-note.txt"
+"$UNBORN_ROOT/.harness/bin/harness-runner" run T-200 "$UNBORN_ROOT" --dispatch-mode print > "$UNBORN_RUN_JSON"
+python3 "$UNBORN_ROOT/.harness/scripts/runner.py" finalize "$UNBORN_ROOT" T-200 --tmux-session "print:T-200" --runner-status 0 > "$UNBORN_FINALIZE_JSON"
+
+grep -q '"status": "worktree_missing"' "$UNBORN_PREPARE_JSON"
+grep -q '"environmentStatus": "degraded"' "$UNBORN_PREPARE_JSON"
+grep -q '"status": "degraded"' "$UNBORN_DIFF_JSON"
+grep -q '"diff base is unavailable because repository HEAD is unborn"' "$UNBORN_DIFF_JSON"
+grep -q '"ok": true' "$UNBORN_RUN_JSON"
+grep -q '"guardOverrideReasons": \[' "$UNBORN_RUN_JSON"
+grep -q '"finalStatus": "completed"' "$UNBORN_FINALIZE_JSON"
+grep -q '"environmentStatus": "degraded"' "$UNBORN_FINALIZE_JSON"
+grep -q '"failureClass": null' "$UNBORN_FINALIZE_JSON"
+
 cat > "$PROJECT_ROOT/.harness/research/smoke-runtime-scan.md" <<'EOF'
 ---
 schemaVersion: "1.0"
@@ -501,7 +605,18 @@ cp "$PROJECT_ROOT/.harness/state/guard-state.json" "$MANAGED_DIRTY_GUARD_JSON"
 cp "$PROJECT_ROOT/.harness/state/worktree-registry.json" "$MANAGED_DIRTY_WORKTREE_JSON"
 rm -f "$PROJECT_ROOT/.worktrees/T-100-smoke/managed-dirty.txt"
 python3 "$PROJECT_ROOT/.harness/scripts/refresh-state.py" "$PROJECT_ROOT" >/dev/null
+if command -v tmux >/dev/null 2>&1; then
+  ORPHAN_SESSION="hr-orphan-release-smoke-project-stale"
+  tmux kill-session -t "$ORPHAN_SESSION" >/dev/null 2>&1 || true
+  tmux new-session -d -s "$ORPHAN_SESSION" "sleep 30" >/dev/null
+fi
 "$PROJECT_ROOT/.harness/bin/harness-runner" daemon "$PROJECT_ROOT" --interval 1 --dispatch-mode print --replace >/dev/null
+if command -v tmux >/dev/null 2>&1; then
+  if tmux has-session -t "$ORPHAN_SESSION" >/dev/null 2>&1; then
+    echo "expected daemon start to gc orphan tmux session" >&2
+    exit 1
+  fi
+fi
 sleep 2
 python3 "$PROJECT_ROOT/.harness/scripts/refresh-state.py" "$PROJECT_ROOT" >/dev/null
 "$PROJECT_ROOT/.harness/bin/harness-ops" "$PROJECT_ROOT" --format json top > "$OPS_TOP_JSON"
@@ -522,7 +637,14 @@ harness-control "$PROJECT_ROOT" task T-100 archive --reason "smoke archive" --fo
 harness-control "$PROJECT_ROOT" project archive --reason "smoke project archive" --format json > "$CONTROL_PROJECT_ARCHIVE_JSON"
 python3 "$PROJECT_ROOT/.harness/scripts/refresh-state.py" "$PROJECT_ROOT" >/dev/null
 cp "$PROJECT_ROOT/.harness/state/completion-gate.json" "$FINAL_COMPLETION_GATE_JSON"
+DAEMON_SESSION_NAME="$(cat "$PROJECT_ROOT/.harness/state/runner-daemon-tmux-session.txt")"
 "$PROJECT_ROOT/.harness/bin/harness-runner" daemon-stop "$PROJECT_ROOT" >/dev/null
+if command -v tmux >/dev/null 2>&1; then
+  if tmux has-session -t "$DAEMON_SESSION_NAME" >/dev/null 2>&1; then
+    echo "expected daemon-stop to remove daemon tmux session" >&2
+    exit 1
+  fi
+fi
 
 python3 - <<'PY' "$PROJECT_ROOT" "$AUTO_INIT_ROOT" "$AUTO_INIT_JSON" "$REQUEST_ID" "$BUG_REQUEST_ID" "$RECONCILE_JSON" "$RUN_JSON" "$RECOVER_JSON" "$FINALIZE_JSON" "$REPORT_JSON" "$DUPLICATE_SUBMIT_JSON" "$CONTEXT_SUBMIT_JSON" "$INSPECTION_SUBMIT_JSON" "$APPEND_SUBMIT_JSON" "$APPEND2_SUBMIT_JSON" "$COMPOUND_SUBMIT_JSON" "$INSPECTION_RECONCILE_JSON" "$APPEND_RECONCILE_JSON" "$APPEND2_RECONCILE_JSON" "$COMPOUND_RECONCILE_JSON" "$BUG_RECONCILE_JSON" "$REPAIR_RECONCILE_JSON" "$REPAIR_RUN_JSON" "$REPAIR_FINALIZE_JSON" "$RCA_REPORT_JSON" "$LOG_SEARCH_JSON" "$LOG_SEARCH_DETAIL_JSON" "$OPS_TOP_JSON" "$OPS_QUEUE_JSON" "$OPS_WORKERS_JSON" "$OPS_TASK_JSON" "$OPS_DAEMON_JSON" "$OPS_WORKTREES_JSON" "$OPS_MERGE_QUEUE_JSON" "$OPS_CONFLICTS_JSON" "$OPS_DOCTOR_JSON" "$OPS_WATCH_TEXT" "$TASKS_JSON" "$TASK_DETAIL_JSON" "$TASK_LOG_JSON" "$CONTROL_DAEMON_JSON" "$CONTROL_ARCHIVE_JSON" "$UNKNOWN_DIRTY_GUARD_JSON" "$MANAGED_DIRTY_GUARD_JSON" "$MANAGED_DIRTY_WORKTREE_JSON" "$CONTROL_PROJECT_ARCHIVE_JSON" "$FINAL_COMPLETION_GATE_JSON"
 import json

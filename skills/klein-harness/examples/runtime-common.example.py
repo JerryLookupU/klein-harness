@@ -335,6 +335,135 @@ def default_guard_state(*, generator: str) -> dict:
     }
 
 
+def detect_integration_branch(root: Path) -> str:
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(root), "symbolic-ref", "--quiet", "--short", "HEAD"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        branch = result.stdout.strip()
+        return branch or "main"
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return "main"
+
+
+def default_spec_state(*, generator: str) -> dict:
+    return {
+        "schemaVersion": SCHEMA_VERSION,
+        "generator": generator,
+        "generatedAt": now_iso(),
+        "specRevision": None,
+        "planningStage": "draft",
+        "parentSpecRevision": None,
+        "status": "initialized",
+        "objective": None,
+        "rollbackPoint": None,
+        "blocks": [],
+    }
+
+
+def default_features_state(root: Path, *, generator: str) -> dict:
+    return {
+        "schemaVersion": SCHEMA_VERSION,
+        "generator": generator,
+        "project": root.name,
+        "generatedAt": now_iso(),
+        "scope": f"repo-local: {root.name}",
+        "reviewCyclePresets": [1, 5, 10, 30, 60, 120, 180],
+        "reviewCadencePresets": {
+            "fibonacciHours": [1, 3, 5, 8, 13, 21, 34, 55, 89, 144],
+            "legacyCycleDays": [1, 5, 10, 30, 60, 120, 180],
+        },
+        "currentFeatureId": None,
+        "features": [],
+    }
+
+
+def default_work_items_state(*, generator: str) -> dict:
+    return {
+        "schemaVersion": SCHEMA_VERSION,
+        "generator": generator,
+        "generatedAt": now_iso(),
+        "specRevision": None,
+        "items": [],
+    }
+
+
+def default_task_pool_state(root: Path, *, generator: str) -> dict:
+    return {
+        "schemaVersion": SCHEMA_VERSION,
+        "generator": generator,
+        "generatedAt": now_iso(),
+        "integrationBranch": detect_integration_branch(root),
+        "tasks": [],
+    }
+
+
+def default_context_map_state(*, generator: str) -> dict:
+    return {
+        "schemaVersion": SCHEMA_VERSION,
+        "generator": generator,
+        "generatedAt": now_iso(),
+        "specRevision": None,
+        "normalization": {
+            "lineEndings": "lf",
+            "sortKeys": True,
+            "stripFields": ["generatedAt", "leasedAt", "leaseExpiresAt", "lastUpdated", "seq"],
+        },
+        "segments": [],
+        "packs": {
+            "globalPrefix": [],
+            "rolePrefix": {
+                "planner": [],
+                "orchestrator": [],
+                "worker": [],
+            },
+            "taskSuffix": {},
+        },
+        "cacheKeys": {
+            "globalPrefixHash": "sha256:empty",
+            "rolePrefixHashes": {
+                "worker": "sha256:empty",
+                "orchestrator": "sha256:empty",
+                "planner": "sha256:empty",
+            },
+            "taskSuffixHashes": {},
+        },
+        "routing": {
+            "routingModel": "gpt-5.4",
+            "executionModel": "gpt-5.3-codex",
+        },
+        "sessionAffinity": {
+            "families": {},
+            "cacheAffinityKeys": {},
+        },
+    }
+
+
+def default_verification_manifest(*, generator: str) -> dict:
+    return {
+        "schemaVersion": SCHEMA_VERSION,
+        "generator": generator,
+        "generatedAt": now_iso(),
+        "rules": [],
+    }
+
+
+def default_standards_markdown() -> str:
+    return "\n".join(
+        [
+            "# Harness Standards",
+            "",
+            "- status: scaffold-only",
+            "- purpose: provide a minimal standards surface before blueprint/refinement fills it in",
+            "- note: project-specific coding and verification rules have not been authored yet",
+            "",
+        ]
+    )
+
+
 def render_progress_markdown(progress: dict) -> str:
     lines = [
         "# Harness Progress",
@@ -684,6 +813,34 @@ def ensure_runtime_scaffold(root: Path, generator: str = "harness-runtime"):
         write_json(progress_state_path, default_progress_state())
     if progress_state_path.exists() and not progress_markdown_path.exists():
         progress_markdown_path.write_text(render_progress_markdown(load_json(progress_state_path)), encoding="utf-8")
+
+    spec_path = harness / "spec.json"
+    if not spec_path.exists():
+        write_json(spec_path, default_spec_state(generator=generator))
+
+    features_path = harness / "features.json"
+    if not features_path.exists():
+        write_json(features_path, default_features_state(root, generator=generator))
+
+    work_items_path = harness / "work-items.json"
+    if not work_items_path.exists():
+        write_json(work_items_path, default_work_items_state(generator=generator))
+
+    task_pool_path = harness / "task-pool.json"
+    if not task_pool_path.exists():
+        write_json(task_pool_path, default_task_pool_state(root, generator=generator))
+
+    context_map_path = harness / "context-map.json"
+    if not context_map_path.exists():
+        write_json(context_map_path, default_context_map_state(generator=generator))
+
+    verification_manifest_path = harness / "verification-rules" / "manifest.json"
+    if not verification_manifest_path.exists():
+        write_json(verification_manifest_path, default_verification_manifest(generator=generator))
+
+    standards_path = harness / "standards.md"
+    if not standards_path.exists():
+        standards_path.write_text(default_standards_markdown(), encoding="utf-8")
 
     for path_name in (
         "current.json",
@@ -1683,6 +1840,15 @@ def dirty_entry_payload(*, scope: str, task: dict | None, worktree_path: str | N
     }
 
 
+def worktree_is_repo_root(root: Path, worktree_rel: str | None) -> bool:
+    if not worktree_rel:
+        return False
+    try:
+        return (root / worktree_rel).resolve() == root.resolve()
+    except FileNotFoundError:
+        return False
+
+
 def collect_dirty_state(root: Path, task_pool: dict | None, policy_summary: dict) -> dict:
     tasks = (task_pool or {}).get("tasks", [])
     repo_ready = git_repo_ready(root)
@@ -1724,6 +1890,8 @@ def collect_dirty_state(root: Path, task_pool: dict | None, policy_summary: dict
     for task in tasks:
         worktree_rel = task.get("worktreePath")
         if not worktree_rel:
+            continue
+        if worktree_is_repo_root(root, worktree_rel) and not managed_dirty_task(task):
             continue
         worktree_path = (root / worktree_rel).resolve()
         if not worktree_path.exists():
@@ -2016,7 +2184,17 @@ def build_guard_state(
         warnings.append("managed dirty worktree pending checkpoint")
     if daemon_summary.get("status") == "running" and daemon_summary.get("runtimeHealth") == "degraded":
         blockers.append("daemon runtime health degraded")
-    if any(item.get("status") == "worktree_missing" for item in worktree_registry.get("worktrees", [])):
+    degraded_missing = [
+        item for item in worktree_registry.get("worktrees", [])
+        if item.get("status") == "worktree_missing" and item.get("environmentStatus") == "degraded"
+    ]
+    hard_missing = [
+        item for item in worktree_registry.get("worktrees", [])
+        if item.get("status") == "worktree_missing" and item.get("environmentStatus") != "degraded"
+    ]
+    if degraded_missing:
+        warnings.append("worktree preparation degraded by repo environment")
+    if hard_missing:
         blockers.append("worktree state incoherent")
     if merge_summary.get("conflictCount", 0) > 0:
         warnings.append("merge conflicts open")

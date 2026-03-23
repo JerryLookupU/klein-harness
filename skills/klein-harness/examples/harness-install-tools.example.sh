@@ -12,6 +12,13 @@ BIN_DIR="$HARNESS_DIR/bin"
 SCRIPTS_DIR="$HARNESS_DIR/scripts"
 MANIFEST="$HARNESS_DIR/tooling-manifest.json"
 EXAMPLES_DIR="$(cd "$(dirname "$0")" && pwd)"
+VERSION_FILE="$(cd "$EXAMPLES_DIR/.." && pwd)/VERSION"
+
+if [[ -f "$VERSION_FILE" ]]; then
+  RELEASE_VERSION="$(tr -d '[:space:]' < "$VERSION_FILE")"
+else
+  RELEASE_VERSION="0.0.0-dev"
+fi
 
 mkdir -p "$BIN_DIR" "$SCRIPTS_DIR" "$HARNESS_DIR/state"
 
@@ -36,6 +43,7 @@ cat > "$MANIFEST" <<'JSON'
 {
   "schemaVersion": "1.0",
   "generator": "klein-harness",
+  "releaseVersion": "RELEASE_VERSION",
   "generatedAt": "INSTALL_TIME",
   "installed": [
     {
@@ -82,17 +90,20 @@ cat > "$MANIFEST" <<'JSON'
 }
 JSON
 
-python3 - <<'PY' "$MANIFEST"
+python3 - <<'PY' "$MANIFEST" "$RELEASE_VERSION"
 import json, sys
 from datetime import datetime, timezone
 path = sys.argv[1]
+release_version = sys.argv[2]
 data = json.load(open(path))
 data["generatedAt"] = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
+data["releaseVersion"] = release_version
 json.dump(data, open(path, "w"), ensure_ascii=False, indent=2)
 open(path, "a").write("\n")
 PY
 
 echo "installed harness tools into $HARNESS_DIR"
+echo "version: v$RELEASE_VERSION"
 echo "primary local commands:"
 echo "  .harness/bin/harness-submit"
 echo "  .harness/bin/harness-tasks"
