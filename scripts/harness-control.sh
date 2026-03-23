@@ -6,6 +6,21 @@ usage() {
 usage: harness-control <ROOT> <daemon|task|request|project> [args...]
 
 Canonical control surface for Klein-Harness.
+Primary task control actions:
+  checkpoint
+  archive
+  stop
+  restart-from-stage <queued|worktree_prepared|merge_queued>
+  restart [--from-stage <stage>]    # legacy compatibility alias to restart-from-stage
+
+Compatibility actions (kept for power users):
+  retry
+  recover
+  force-recover
+  attach
+  request cancel
+  project archive
+  project tidy-worktrees [--dry-run]
 
 Examples:
   harness-control /repo daemon status
@@ -13,6 +28,7 @@ Examples:
   harness-control /repo task T-003 restart-from-stage queued --reason "retry from clean stage"
   harness-control /repo task T-003 stop --reason "operator stop"
   harness-control /repo project archive --reason "loop retired"
+  harness-control /repo project tidy-worktrees --dry-run
 EOF
 }
 
@@ -82,7 +98,8 @@ case "$DOMAIN" in
     ;;
   task)
     if [[ ${#PASSTHRU[@]} -lt 2 ]]; then
-      echo "usage: harness-control <ROOT> task <TASK_ID> <retry|recover|force-recover|restart|restart-from-stage|checkpoint|archive|stop|attach> [args...]" >&2
+      echo "usage: harness-control <ROOT> task <TASK_ID> <checkpoint|archive|stop|restart-from-stage|restart|attach> [args...] [ --from-stage <stage> ]" >&2
+      echo "Legacy compatibility actions: retry | recover | force-recover" >&2
       exit 1
     fi
     TASK_ID="${PASSTHRU[0]}"

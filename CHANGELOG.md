@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.2.3 - 2026-03-23
+
+Patch release for operator-safe project worktree cleanup.
+
+### Highlights
+
+- Added `harness-control <ROOT> project tidy-worktrees` for repo-local cleanup of stale runner/worktree artifacts.
+- `tidy-worktrees` runs `git worktree prune` and removes stale runner prompt/exec artifacts without touching repo-root business edits.
+- Added `--dry-run` support so operators can inspect cleanup intent before applying it.
+
 ## v0.2.2 - 2026-03-23
 
 Patch release for runtime degradation handling and operator visibility.

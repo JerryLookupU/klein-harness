@@ -115,6 +115,63 @@ def emit(fmt: str, payload: dict) -> None:
     print("\n".join(lines))
 
 
+def list_runtime_cleanup_candidates(root: Path) -> list[Path]:
+    state_dir = root / ".harness" / "state"
+    candidates = []
+    for pattern in ("runner-exec-*.sh", "runner-prompt-*.md"):
+        candidates.extend(sorted(state_dir.glob(pattern)))
+    daemon_state_path = state_dir / "runner-daemon.json"
+    daemon_script_path = state_dir / "runner-daemon.sh"
+    daemon_session_path = state_dir / "runner-daemon-tmux-session.txt"
+    daemon_running = False
+    if daemon_state_path.exists():
+        try:
+            daemon_running = json.loads(daemon_state_path.read_text()).get("status") == "running"
+        except json.JSONDecodeError:
+            daemon_running = False
+    if not daemon_running:
+        for path in (daemon_script_path, daemon_session_path):
+            if path.exists():
+                candidates.append(path)
+    return candidates
+
+
+def cmd_project_tidy_worktrees(root: Path, files: dict, *, fmt: str, dry_run: bool) -> int:
+    candidates = list_runtime_cleanup_candidates(root)
+    removed = []
+    git_prune = subprocess.run(
+        ["git", "-C", str(root), "worktree", "prune"],
+        check=False,
+        text=True,
+        capture_output=True,
+    )
+    if not dry_run:
+        for path in candidates:
+            if path.is_file():
+                path.unlink(missing_ok=True)
+                removed.append(str(path.relative_to(root)))
+            elif path.is_dir():
+                removed.append(str(path.relative_to(root)))
+    else:
+        removed = [str(path.relative_to(root)) for path in candidates]
+
+    refresh_runtime_state(root)
+    payload = {
+        "ok": git_prune.returncode == 0,
+        "action": "tidy-worktrees",
+        "status": "dry-run" if dry_run else "applied",
+        "detail": f"removedArtifacts={len(removed)} gitPruneExit={git_prune.returncode}",
+        "removedArtifacts": removed,
+        "gitWorktreePrune": {
+            "exitCode": git_prune.returncode,
+            "stdout": (git_prune.stdout or "").strip(),
+            "stderr": (git_prune.stderr or "").strip(),
+        },
+    }
+    emit(fmt, payload)
+    return 0 if git_prune.returncode == 0 else 1
+
+
 def cmd_task(args) -> int:
     root = Path(args.root).resolve()
     files = ensure_runtime_scaffold(root, generator="harness-control")
@@ -214,6 +271,9 @@ def cmd_project(args) -> int:
         emit(args.format, {"ok": True, "action": "archive", "status": project_meta.get("lifecycle"), "detail": project_meta.get("archiveReason")})
         return 0
 
+    if args.action == "tidy-worktrees":
+        return cmd_project_tidy_worktrees(root, files, fmt=args.format, dry_run=args.dry_run)
+
     raise ValueError(f"unsupported project action: {args.action}")
 
 
@@ -236,8 +296,9 @@ def main() -> int:
     p_request.add_argument("--reason")
 
     p_project = sub.add_parser("project")
-    p_project.add_argument("action", choices=["archive"])
+    p_project.add_argument("action", choices=["archive", "tidy-worktrees"])
     p_project.add_argument("--reason")
+    p_project.add_argument("--dry-run", action="store_true")
 
     args = parser.parse_args()
     if args.command == "task":
