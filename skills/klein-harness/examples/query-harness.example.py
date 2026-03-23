@@ -149,7 +149,15 @@ def make_blueprint(spec, task_pool, work_items, tasks):
     }
 
 
-def make_task_view(task, feedback_summary=None):
+def worktree_entry_for_task(worktree_registry, task_id: str):
+    for item in (worktree_registry or {}).get("worktrees", []):
+        if item.get("taskId") == task_id:
+            return item
+    return {}
+
+
+def make_task_view(task, feedback_summary=None, worktree_registry=None, guard_state=None, completion_gate=None):
+    worktree_entry = worktree_entry_for_task(worktree_registry, task.get("taskId"))
     return {
         "taskId": task.get("taskId"),
         "threadKey": task.get("threadKey"),
@@ -177,6 +185,11 @@ def make_task_view(task, feedback_summary=None):
         "mergedCommit": task.get("mergedCommit"),
         "cleanupStatus": task.get("cleanupStatus"),
         "conflictPaths": task.get("conflictPaths", []),
+        "dirtyState": worktree_entry.get("dirtyState"),
+        "dirtyProvenance": worktree_entry.get("dirtyProvenance"),
+        "dirtyPathCount": worktree_entry.get("dirtyPathCount"),
+        "dirtyPathsSample": worktree_entry.get("dirtyPathsSample", []),
+        "pendingCheckpoint": worktree_entry.get("pendingCheckpoint", False),
         "diffBase": task.get("diffBase"),
         "diffSummary": task.get("diffSummary"),
         "resumeStrategy": task.get("resumeStrategy"),
@@ -189,6 +202,8 @@ def make_task_view(task, feedback_summary=None):
         "checkpointRequired": task.get("checkpointRequired"),
         "checkpointReason": task.get("checkpointReason"),
         "supersededByRequestId": task.get("supersededByRequestId"),
+        "guardStatus": (guard_state or {}).get("status"),
+        "completionGateStatus": (completion_gate or {}).get("status"),
         "recentFailures": recent_task_failures(feedback_summary, task.get("taskId")),
     }
 
@@ -281,11 +296,35 @@ def make_merge_queue_view(merge_queue, merge_summary):
     }
 
 
-def make_blockers_view(queue_summary, task_summary, log_index):
+def make_blockers_view(queue_summary, task_summary, log_index, guard_state=None):
     return {
         "queueBlocked": queue_summary.get("recentBlockedRequests", []) if queue_summary else [],
         "routeBlocked": task_summary.get("blockedRoutes", []) if task_summary else [],
         "logBlocked": log_index.get("openBlockers", []) if log_index else [],
+        "guardBlocked": (guard_state or {}).get("blockers", []),
+    }
+
+
+def make_todo_view(todo_summary):
+    return todo_summary or {
+        "actionableTodoCount": 0,
+        "blockedTodoCount": 0,
+        "completedTodoCount": 0,
+        "todoItems": [],
+        "nextTaskIds": [],
+        "checkpointTaskIds": [],
+        "mergeReadyTaskIds": [],
+    }
+
+
+def make_guard_view(guard_state):
+    return guard_state or {
+        "status": "unknown",
+        "safeToExecute": False,
+        "blockers": [],
+        "warnings": [],
+        "systemOwnedDirty": [],
+        "unknownDirty": [],
     }
 
 
@@ -455,6 +494,10 @@ def format_text(view, payload):
             f"mergedCommit: {payload.get('mergedCommit')}",
             f"cleanupStatus: {payload.get('cleanupStatus')}",
             f"conflictPaths: {payload.get('conflictPaths')}",
+            f"dirtyState: {payload.get('dirtyState')}",
+            f"dirtyProvenance: {payload.get('dirtyProvenance')}",
+            f"dirtyPathCount: {payload.get('dirtyPathCount')}",
+            f"pendingCheckpoint: {payload.get('pendingCheckpoint')}",
             f"diffBase: {payload.get('diffBase')}",
             f"diffSummary: {payload.get('diffSummary')}",
             f"verificationStatus: {payload.get('verificationStatus')}",
@@ -462,6 +505,8 @@ def format_text(view, payload):
             f"verificationResultPath: {payload.get('verificationResultPath')}",
             f"checkpointRequired: {payload.get('checkpointRequired')}",
             f"supersededByRequestId: {payload.get('supersededByRequestId')}",
+            f"guardStatus: {payload.get('guardStatus')}",
+            f"completionGateStatus: {payload.get('completionGateStatus')}",
         ]
         for failure in payload.get("recentFailures", []):
             lines.append(f"recentFailure: {failure.get('feedbackType')} [{failure.get('severity')}] {failure.get('message')}")
@@ -624,6 +669,50 @@ def format_text(view, payload):
             lines.extend(f"- {item.get('taskId')} {item.get('blockers')}" for item in payload["logBlocked"])
         else:
             lines.append("- none")
+        lines.append("guardBlocked:")
+        if payload.get("guardBlocked"):
+            lines.extend(f"- {item}" for item in payload["guardBlocked"])
+        else:
+            lines.append("- none")
+        return "\n".join(lines)
+    if view == "todo":
+        lines = [
+            f"actionableTodoCount: {payload.get('actionableTodoCount', 0)}",
+            f"blockedTodoCount: {payload.get('blockedTodoCount', 0)}",
+            f"completedTodoCount: {payload.get('completedTodoCount', 0)}",
+            f"checkpointTaskIds: {payload.get('checkpointTaskIds', [])}",
+            f"mergeReadyTaskIds: {payload.get('mergeReadyTaskIds', [])}",
+        ]
+        for item in payload.get("todoItems", []):
+            lines.append(
+                f"- {item.get('taskId')} [{item.get('status')}] thread={item.get('threadKey')} epoch={item.get('planEpoch')} blocked={item.get('blockedReason')}"
+            )
+        return "\n".join(lines)
+    if view == "guard":
+        lines = [
+            f"status: {payload.get('status')}",
+            f"safeToExecute: {payload.get('safeToExecute')}",
+            f"completionGateStatus: {payload.get('completionGateStatus')}",
+            f"actionableTodoCount: {payload.get('actionableTodoCount')}",
+            f"systemOwnedDirtyCount: {payload.get('systemOwnedDirtyCount')}",
+            f"unknownDirtyCount: {payload.get('unknownDirtyCount')}",
+            f"pendingCheckpointCount: {payload.get('pendingCheckpointCount')}",
+            f"autoCheckpointEligibleTaskIds: {payload.get('autoCheckpointEligibleTaskIds', [])}",
+        ]
+        for item in payload.get("blockers", []):
+            lines.append(f"blocker: {item}")
+        for item in payload.get("warnings", []):
+            lines.append(f"warning: {item}")
+        return "\n".join(lines)
+    if view == "completion-gate":
+        lines = [
+            f"status: {payload.get('status')}",
+            f"satisfied: {payload.get('satisfied')}",
+            f"retireEligible: {payload.get('retireEligible')}",
+            f"retired: {payload.get('retired')}",
+        ]
+        for item in payload.get("remainingChecks", []):
+            lines.append(f"- {item.get('name')} :: {item.get('detail')}")
         return "\n".join(lines)
     return json.dumps(payload, ensure_ascii=False, indent=2)
 
@@ -631,7 +720,7 @@ def format_text(view, payload):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", required=True)
-    parser.add_argument("--view", required=True, choices=["overview", "progress", "current", "blueprint", "task", "feedback", "requests", "workers", "daemon", "worktrees", "merge-queue", "integration", "conflicts", "blockers", "logs", "log"])
+    parser.add_argument("--view", required=True, choices=["overview", "progress", "current", "blueprint", "task", "feedback", "requests", "workers", "daemon", "worktrees", "merge-queue", "integration", "conflicts", "blockers", "logs", "log", "todo", "guard", "completion-gate"])
     parser.add_argument("--task-id")
     parser.add_argument("--request-id")
     parser.add_argument("--session-id")
@@ -656,6 +745,9 @@ def main():
     intake_summary = load_optional_json(files["intake_summary_path"], {})
     thread_state = load_optional_json(files["thread_state_path"], {})
     change_summary = load_optional_json(files["change_summary_path"], {})
+    todo_summary = load_optional_json(files["todo_summary_path"], {})
+    completion_gate = load_optional_json(files["completion_gate_path"], {})
+    guard_state = load_optional_json(files["guard_state_path"], {})
     task_summary = load_optional_json(files["task_summary_path"], {})
     worker_summary = load_optional_json(files["worker_summary_path"], {})
     daemon_summary = load_optional_json(files["daemon_summary_path"], {})
@@ -702,7 +794,7 @@ def main():
     elif args.view == "task":
         if not args.task_id:
             raise ValueError("--task-id is required for view=task")
-        payload = make_task_view(find_task(tasks, args.task_id), feedback_summary)
+        payload = make_task_view(find_task(tasks, args.task_id), feedback_summary, worktree_registry, guard_state, completion_gate)
     elif args.view == "feedback":
         payload = make_feedback_view(feedback_summary, args.task_id)
     elif args.view == "requests":
@@ -723,7 +815,13 @@ def main():
             "openConflicts": merge_summary.get("openConflicts", []),
         }
     elif args.view == "blockers":
-        payload = make_blockers_view(queue_summary, task_summary, log_index)
+        payload = make_blockers_view(queue_summary, task_summary, log_index, guard_state)
+    elif args.view == "todo":
+        payload = make_todo_view(todo_summary)
+    elif args.view == "guard":
+        payload = make_guard_view(guard_state)
+    elif args.view == "completion-gate":
+        payload = completion_gate
     elif args.view == "logs":
         payload = make_logs_view(
             root,

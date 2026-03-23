@@ -24,7 +24,25 @@ Post-release cleanup and UX compression on top of `v0.2`.
   - `harness-task`
   - `harness-control`
 - Added task/request control helpers for checkpoint, archive, stop, restart staging, and request cancel flows.
+- Added guard-driven state surfaces:
+  - `todo-summary.json`
+  - `completion-gate.json`
+  - `guard-state.json`
+- Added dirty/checkpoint provenance so managed dirty worktrees can be checkpointed while unknown dirty worktrees block automation.
+- Added short operational docs for the 4-command surface, guard loop, daily todo, completion gate, and checkpoint provenance.
 - Updated release smoke to cover the compressed 4-command UX while preserving runner/worktree/merge/RCA compatibility checks.
+
+### Release Notes
+
+- 4 commands are now the only public surface taught in docs and install output.
+- `harness-submit` remains the single human write path; `--kind` is only a hint.
+- guard state now makes dirty/checkpoint/archive boundaries explicit and auditable.
+- compatibility helpers still exist, but they are no longer the primary release-facing UX.
+
+### Known Limitations
+
+- `lockHealthy` is still derived from daemon/runtime health plus conflicting-execution checks; it is not yet a dedicated lease ledger.
+- `harness-submit` can auto-initialize the `.harness` scaffold, but it does not pretend to fully bootstrap a project in one synchronous step.
 
 ## v0.2 - 2026-03-23
 

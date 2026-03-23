@@ -197,6 +197,26 @@ def cmd_request(args) -> int:
     raise ValueError(f"unsupported request action: {args.action}")
 
 
+def cmd_project(args) -> int:
+    root = Path(args.root).resolve()
+    files = ensure_runtime_scaffold(root, generator="harness-control")
+    project_meta = load_json(files["project_meta_path"])
+
+    if args.action == "archive":
+        project_meta["lifecycle"] = "archived"
+        project_meta["archivedAt"] = now_iso()
+        project_meta["archiveReason"] = args.reason or "archived by harness-control"
+        project_meta["generator"] = "harness-control"
+        project_meta["generatedAt"] = now_iso()
+        write_json(files["project_meta_path"], project_meta)
+        lineage_event(root, "project.archived", "harness-control", detail=project_meta["archiveReason"])
+        refresh_runtime_state(root)
+        emit(args.format, {"ok": True, "action": "archive", "status": project_meta.get("lifecycle"), "detail": project_meta.get("archiveReason")})
+        return 0
+
+    raise ValueError(f"unsupported project action: {args.action}")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="thin control actions for Klein-Harness")
     parser.add_argument("--root", required=True)
@@ -215,11 +235,17 @@ def main() -> int:
     p_request.add_argument("action", choices=["cancel"])
     p_request.add_argument("--reason")
 
+    p_project = sub.add_parser("project")
+    p_project.add_argument("action", choices=["archive"])
+    p_project.add_argument("--reason")
+
     args = parser.parse_args()
     if args.command == "task":
         return cmd_task(args)
     if args.command == "request":
         return cmd_request(args)
+    if args.command == "project":
+        return cmd_project(args)
     return 1
 
 

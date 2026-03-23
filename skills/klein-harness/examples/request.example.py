@@ -7,15 +7,20 @@ from collections import Counter
 from pathlib import Path
 
 from runtime_common import (
+    apply_dirty_state_to_worktree_registry,
     build_change_summary,
+    build_completion_gate,
     build_feedback_summary,
+    build_guard_state,
     build_intake_summary,
     build_log_index,
     build_root_cause_summary,
     build_request_id,
     build_request_summary,
     build_thread_state,
+    build_todo_summary,
     checkpoint_active_thread_tasks,
+    collect_dirty_state,
     ensure_request_index_shape,
     ensure_runtime_scaffold,
     find_request,
@@ -48,10 +53,49 @@ def write_request_hot_state(root: Path, files: dict, index: dict):
     thread_state = build_thread_state(index, task_pool, request_summary, generator="harness-request", policy_summary=policy_summary)
     intake_summary = build_intake_summary(index, thread_state, generator="harness-request", policy_summary=policy_summary)
     change_summary = build_change_summary(index, task_pool, thread_state, generator="harness-request", policy_summary=policy_summary)
+    queue_summary = load_optional_json(files["queue_summary_path"], {})
+    merge_summary = load_optional_json(files["merge_summary_path"], {})
+    daemon_summary = load_optional_json(files["daemon_summary_path"], {})
+    worker_summary = load_optional_json(files["worker_summary_path"], {})
+    task_summary = load_optional_json(files["task_summary_path"], {})
+    worktree_registry = load_optional_json(files["worktree_registry_path"], {})
+    dirty_state = collect_dirty_state(root, task_pool, policy_summary)
+    worktree_registry = apply_dirty_state_to_worktree_registry(worktree_registry, dirty_state, generator="harness-request")
+    todo_summary = build_todo_summary(task_pool, queue_summary, request_summary, merge_summary, dirty_state, generator="harness-request", policy_summary=policy_summary)
+    completion_gate = build_completion_gate(
+        load_optional_json(files["harness"] / "spec.json", {}),
+        load_optional_json(files["harness"] / "features.json", {}),
+        task_pool,
+        request_summary,
+        merge_summary,
+        feedback_summary,
+        todo_summary,
+        load_optional_json(files["project_meta_path"], {}),
+        generator="harness-request",
+    )
+    guard_state = build_guard_state(
+        root,
+        load_optional_json(files["project_meta_path"], {}),
+        queue_summary,
+        task_summary,
+        worker_summary,
+        daemon_summary,
+        worktree_registry,
+        merge_summary,
+        todo_summary,
+        completion_gate,
+        dirty_state,
+        generator="harness-request",
+        policy_summary=policy_summary,
+    )
     write_json(files["request_summary_path"], request_summary)
     write_json(files["thread_state_path"], thread_state)
     write_json(files["intake_summary_path"], intake_summary)
     write_json(files["change_summary_path"], change_summary)
+    write_json(files["worktree_registry_path"], worktree_registry)
+    write_json(files["todo_summary_path"], todo_summary)
+    write_json(files["completion_gate_path"], completion_gate)
+    write_json(files["guard_state_path"], guard_state)
     return request_summary, thread_state, intake_summary, change_summary
 
 
@@ -184,6 +228,9 @@ def build_report_payload(root: Path, request_id: str | None):
     intake_summary = load_optional_json(files["intake_summary_path"], {})
     thread_state = load_optional_json(files["thread_state_path"], {})
     change_summary = load_optional_json(files["change_summary_path"], {})
+    todo_summary = load_optional_json(files["todo_summary_path"], {})
+    completion_gate = load_optional_json(files["completion_gate_path"], {})
+    guard_state = load_optional_json(files["guard_state_path"], {})
     task_summary = load_optional_json(files["task_summary_path"], {})
     worker_summary = load_optional_json(files["worker_summary_path"], {})
     daemon_summary = load_optional_json(files["daemon_summary_path"], {})
@@ -228,6 +275,9 @@ def build_report_payload(root: Path, request_id: str | None):
         "intakeSummary": intake_summary,
         "threadState": thread_state,
         "changeSummary": change_summary,
+        "todoSummary": todo_summary,
+        "completionGate": completion_gate,
+        "guardState": guard_state,
         "recoverableTaskCount": runtime.get("recoverableTaskCount", 0),
         "recoverableRequestCount": request_summary.get("recoverableRequestCount", 0),
         "blockedRequestCount": request_summary.get("blockedRequestCount", 0),
@@ -266,6 +316,11 @@ def format_report_text(payload: dict):
         f"duplicateRequestCount: {payload.get('intakeSummary', {}).get('duplicateCount', 0)}",
         f"contextMergeCount: {payload.get('intakeSummary', {}).get('contextMergeCount', 0)}",
         f"inspectionOverlayCount: {payload.get('intakeSummary', {}).get('inspectionOverlayCount', 0)}",
+        f"todoActionableCount: {payload.get('todoSummary', {}).get('actionableTodoCount', 0)}",
+        f"completionGateStatus: {payload.get('completionGate', {}).get('status')}",
+        f"guardStatus: {payload.get('guardState', {}).get('status')}",
+        f"pendingCheckpointCount: {payload.get('guardState', {}).get('pendingCheckpointCount', 0)}",
+        f"unknownDirtyCount: {payload.get('guardState', {}).get('unknownDirtyCount', 0)}",
         f"recoverableTaskCount: {payload.get('recoverableTaskCount')}",
         f"recoverableRequestCount: {payload.get('recoverableRequestCount')}",
         f"blockedRequestCount: {payload.get('blockedRequestCount')}",

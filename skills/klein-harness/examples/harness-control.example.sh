@@ -2,7 +2,16 @@
 set -euo pipefail
 
 if [[ $# -lt 2 ]]; then
-  echo "usage: $0 <ROOT> <daemon|task|request> [args...]" >&2
+  cat <<'EOF' >&2
+usage: harness-control <ROOT> <daemon|task|request|project> [args...]
+
+Examples:
+  harness-control /repo daemon status
+  harness-control /repo task T-003 checkpoint --reason "safe pause"
+  harness-control /repo task T-003 restart-from-stage queued --reason "retry from clean stage"
+  harness-control /repo task T-003 stop --reason "operator stop"
+  harness-control /repo project archive --reason "loop retired"
+EOF
   exit 1
 fi
 
@@ -53,14 +62,14 @@ case "$DOMAIN" in
     ;;
   task)
     if [[ ${#PASSTHRU[@]} -lt 2 ]]; then
-      echo "usage: $0 <ROOT> task <TASK_ID> <retry|recover|restart|checkpoint|archive|stop|attach> [args...]" >&2
+      echo "usage: $0 <ROOT> task <TASK_ID> <retry|recover|force-recover|restart|restart-from-stage|checkpoint|archive|stop|attach> [args...]" >&2
       exit 1
     fi
     TASK_ID="${PASSTHRU[0]}"
     ACTION="${PASSTHRU[1]}"
     REST=("${PASSTHRU[@]:2}")
     case "$ACTION" in
-      retry|recover)
+      retry|recover|force-recover)
         if [[ ${#REST[@]} -gt 0 ]]; then
           exec "$RUNNER_SH" recover "$TASK_ID" "$ROOT" "${REST[@]}"
         fi
@@ -74,6 +83,22 @@ case "$DOMAIN" in
           exec "$RUNNER_SH" run "$TASK_ID" "$ROOT" "${REST[@]}"
         fi
         exec "$RUNNER_SH" run "$TASK_ID" "$ROOT"
+        ;;
+      restart-from-stage)
+        if [[ ${#REST[@]} -lt 1 ]]; then
+          echo "usage: $0 <ROOT> task <TASK_ID> restart-from-stage <queued|worktree_prepared|merge_queued> [--reason ...]" >&2
+          exit 1
+        fi
+        STAGE="${REST[0]}"
+        EXTRA=("${REST[@]:1}")
+        if [[ ${#FORMAT_ARGS[@]} -gt 0 && ${#EXTRA[@]} -gt 0 ]]; then
+          exec python3 "$PYTHON_CONTROL" --root "$ROOT" "${FORMAT_ARGS[@]}" task "$TASK_ID" restart --from-stage "$STAGE" "${EXTRA[@]}"
+        elif [[ ${#FORMAT_ARGS[@]} -gt 0 ]]; then
+          exec python3 "$PYTHON_CONTROL" --root "$ROOT" "${FORMAT_ARGS[@]}" task "$TASK_ID" restart --from-stage "$STAGE"
+        elif [[ ${#EXTRA[@]} -gt 0 ]]; then
+          exec python3 "$PYTHON_CONTROL" --root "$ROOT" task "$TASK_ID" restart --from-stage "$STAGE" "${EXTRA[@]}"
+        fi
+        exec python3 "$PYTHON_CONTROL" --root "$ROOT" task "$TASK_ID" restart --from-stage "$STAGE"
         ;;
       attach)
         exec "$RUNNER_SH" attach "$TASK_ID" "$ROOT"
@@ -103,6 +128,16 @@ case "$DOMAIN" in
       exec python3 "$PYTHON_CONTROL" --root "$ROOT" request "${PASSTHRU[@]}"
     fi
     exec python3 "$PYTHON_CONTROL" --root "$ROOT" request
+    ;;
+  project)
+    if [[ ${#FORMAT_ARGS[@]} -gt 0 && ${#PASSTHRU[@]} -gt 0 ]]; then
+      exec python3 "$PYTHON_CONTROL" --root "$ROOT" "${FORMAT_ARGS[@]}" project "${PASSTHRU[@]}"
+    elif [[ ${#FORMAT_ARGS[@]} -gt 0 ]]; then
+      exec python3 "$PYTHON_CONTROL" --root "$ROOT" "${FORMAT_ARGS[@]}" project
+    elif [[ ${#PASSTHRU[@]} -gt 0 ]]; then
+      exec python3 "$PYTHON_CONTROL" --root "$ROOT" project "${PASSTHRU[@]}"
+    fi
+    exec python3 "$PYTHON_CONTROL" --root "$ROOT" project
     ;;
   *)
     echo "unknown control domain: $DOMAIN" >&2

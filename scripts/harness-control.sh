@@ -3,9 +3,16 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF' >&2
-usage: harness-control <ROOT> <daemon|task|request> [args...]
+usage: harness-control <ROOT> <daemon|task|request|project> [args...]
 
-Canonical runtime/task control surface for Klein-Harness.
+Canonical control surface for Klein-Harness.
+
+Examples:
+  harness-control /repo daemon status
+  harness-control /repo task T-003 checkpoint --reason "safe pause"
+  harness-control /repo task T-003 restart-from-stage queued --reason "retry from clean stage"
+  harness-control /repo task T-003 stop --reason "operator stop"
+  harness-control /repo project archive --reason "loop retired"
 EOF
 }
 
@@ -75,20 +82,14 @@ case "$DOMAIN" in
     ;;
   task)
     if [[ ${#PASSTHRU[@]} -lt 2 ]]; then
-      echo "usage: harness-control <ROOT> task <TASK_ID> <retry|recover|restart|checkpoint|archive|stop|attach> [args...]" >&2
+      echo "usage: harness-control <ROOT> task <TASK_ID> <retry|recover|force-recover|restart|restart-from-stage|checkpoint|archive|stop|attach> [args...]" >&2
       exit 1
     fi
     TASK_ID="${PASSTHRU[0]}"
     ACTION="${PASSTHRU[1]}"
     REST=("${PASSTHRU[@]:2}")
     case "$ACTION" in
-      retry)
-        if [[ ${#REST[@]} -gt 0 ]]; then
-          exec "$LOCAL_RUNNER" recover "$TASK_ID" "$ROOT" "${REST[@]}"
-        fi
-        exec "$LOCAL_RUNNER" recover "$TASK_ID" "$ROOT"
-        ;;
-      recover)
+      retry|recover|force-recover)
         if [[ ${#REST[@]} -gt 0 ]]; then
           exec "$LOCAL_RUNNER" recover "$TASK_ID" "$ROOT" "${REST[@]}"
         fi
@@ -103,6 +104,27 @@ case "$DOMAIN" in
           exec "$LOCAL_RUNNER" run "$TASK_ID" "$ROOT" "${REST[@]}"
         fi
         exec "$LOCAL_RUNNER" run "$TASK_ID" "$ROOT"
+        ;;
+      restart-from-stage)
+        CONTROL_SCRIPT="$ROOT/.harness/scripts/control.py"
+        if [[ ! -f "$CONTROL_SCRIPT" ]]; then
+          echo "control script not found: $CONTROL_SCRIPT" >&2
+          exit 1
+        fi
+        if [[ ${#REST[@]} -lt 1 ]]; then
+          echo "usage: harness-control <ROOT> task <TASK_ID> restart-from-stage <queued|worktree_prepared|merge_queued> [--reason ...]" >&2
+          exit 1
+        fi
+        STAGE="${REST[0]}"
+        EXTRA=("${REST[@]:1}")
+        if [[ ${#FORMAT_ARGS[@]} -gt 0 && ${#EXTRA[@]} -gt 0 ]]; then
+          exec python3 "$CONTROL_SCRIPT" --root "$ROOT" "${FORMAT_ARGS[@]}" task "$TASK_ID" restart --from-stage "$STAGE" "${EXTRA[@]}"
+        elif [[ ${#FORMAT_ARGS[@]} -gt 0 ]]; then
+          exec python3 "$CONTROL_SCRIPT" --root "$ROOT" "${FORMAT_ARGS[@]}" task "$TASK_ID" restart --from-stage "$STAGE"
+        elif [[ ${#EXTRA[@]} -gt 0 ]]; then
+          exec python3 "$CONTROL_SCRIPT" --root "$ROOT" task "$TASK_ID" restart --from-stage "$STAGE" "${EXTRA[@]}"
+        fi
+        exec python3 "$CONTROL_SCRIPT" --root "$ROOT" task "$TASK_ID" restart --from-stage "$STAGE"
         ;;
       attach)
         exec "$LOCAL_RUNNER" attach "$TASK_ID" "$ROOT"
@@ -142,6 +164,21 @@ case "$DOMAIN" in
       exec python3 "$CONTROL_SCRIPT" --root "$ROOT" request "${PASSTHRU[@]}"
     fi
     exec python3 "$CONTROL_SCRIPT" --root "$ROOT" request
+    ;;
+  project)
+    CONTROL_SCRIPT="$ROOT/.harness/scripts/control.py"
+    if [[ ! -f "$CONTROL_SCRIPT" ]]; then
+      echo "control script not found: $CONTROL_SCRIPT" >&2
+      exit 1
+    fi
+    if [[ ${#FORMAT_ARGS[@]} -gt 0 && ${#PASSTHRU[@]} -gt 0 ]]; then
+      exec python3 "$CONTROL_SCRIPT" --root "$ROOT" "${FORMAT_ARGS[@]}" project "${PASSTHRU[@]}"
+    elif [[ ${#FORMAT_ARGS[@]} -gt 0 ]]; then
+      exec python3 "$CONTROL_SCRIPT" --root "$ROOT" "${FORMAT_ARGS[@]}" project
+    elif [[ ${#PASSTHRU[@]} -gt 0 ]]; then
+      exec python3 "$CONTROL_SCRIPT" --root "$ROOT" project "${PASSTHRU[@]}"
+    fi
+    exec python3 "$CONTROL_SCRIPT" --root "$ROOT" project
     ;;
   *)
     echo "unknown control domain: $DOMAIN" >&2

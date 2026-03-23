@@ -13,7 +13,17 @@ from runtime_common import (
     TASK_ACTIVE_STATUSES,
     TASK_COMPLETED_STATUSES,
     age_seconds,
+    apply_dirty_state_to_worktree_registry,
     build_compact_log_artifact,
+    build_completion_gate,
+    build_daemon_summary,
+    build_guard_state,
+    build_merge_summary,
+    build_queue_summary,
+    build_task_summary,
+    build_todo_summary,
+    build_worker_summary,
+    collect_dirty_state,
     context_rot_score,
     current_plan_epoch_for_thread,
     emit_follow_up_request,
@@ -22,8 +32,10 @@ from runtime_common import (
     find_task,
     load_merge_queue,
     load_json,
+    load_merge_queue,
     load_optional_json,
     load_policy_summary,
+    load_worktree_registry,
     now_iso,
     priority_rank,
     process_merge_queue,
@@ -284,11 +296,11 @@ def prompt_lines(task: dict, route_decision: dict, project_root: str, execution_
         f"gateReason: {route_decision.get('gateReason')}",
         f"promptStages: {route_decision.get('promptStages', [])}",
         "",
-        "请读取 .harness/state/progress.json、.harness/task-pool.json、.harness/session-registry.json。",
+        "请读取 .harness/state/progress.json、.harness/state/todo-summary.json、.harness/state/completion-gate.json、.harness/state/guard-state.json、.harness/task-pool.json、.harness/session-registry.json。",
         "如果存在 .harness/state/feedback-summary.json，只读取当前 task 最近 3 条高严重度失败。",
         "如果存在 .harness/state/task-summary.json 或 .harness/state/worker-summary.json，先读这些 compact summaries。",
         "如果存在相关 .harness/log-<taskId>.md，默认先读 compact log，不要先扫其他 task 的 raw runner log。",
-        "检索顺序默认是：current/runtime/progress/request-summary/lineage-index -> task/worker/log summaries -> compact log md -> raw runner log。",
+        "检索顺序默认是：current/runtime/progress/todo-summary/completion-gate/guard-state/request-summary/lineage-index -> task/worker/log summaries -> compact log md -> raw runner log。",
         f"找到任务 {task.get('taskId')}，按其 ownedPaths 和 verificationRuleIds 执行。",
         "执行完成后回写 task-pool.json、state/progress.json、lineage.jsonl、session-registry.json。",
         "progress.md 是由 JSON 派生的人类视图，不要把 Markdown 当机器状态源。",
@@ -605,6 +617,52 @@ def preferred_request_task_ids(root: Path) -> list[str]:
     ]
 
 
+def global_guard_state(root: Path, files: dict, *, task_pool: dict, session_registry: dict, heartbeats: dict, runner_state: dict, request_summary: dict, policy_summary: dict):
+    queue_summary = build_queue_summary(load_json(files["request_index_path"]), request_summary, generator="harness-runner", policy_summary=policy_summary)
+    feedback_summary = load_optional_json(files["feedback_summary_path"], {})
+    lineage_index = load_optional_json(files["lineage_index_path"], {})
+    worker_summary = build_worker_summary(task_pool, session_registry, runner_state, heartbeats, generator="harness-runner", policy_summary=policy_summary)
+    daemon_state = load_daemon_state(files["state_dir"])
+    daemon_summary = load_optional_json(files["daemon_summary_path"], {})
+    if not daemon_summary:
+        daemon_summary = build_daemon_summary(daemon_state, runner_state, worker_summary, generator="harness-runner", policy_summary=policy_summary)
+    task_summary = build_task_summary(task_pool, feedback_summary, lineage_index, runner_state, generator="harness-runner", policy_summary=policy_summary)
+    merge_queue = load_merge_queue(files, generator="harness-runner")
+    merge_summary = load_optional_json(files["merge_summary_path"], {})
+    if not merge_summary:
+        merge_summary = build_merge_summary(merge_queue, load_worktree_registry(files, generator="harness-runner"), generator="harness-runner")
+    dirty_state = collect_dirty_state(root, task_pool, policy_summary)
+    worktree_registry = apply_dirty_state_to_worktree_registry(load_worktree_registry(files, generator="harness-runner"), dirty_state, generator="harness-runner")
+    todo_summary = build_todo_summary(task_pool, queue_summary, request_summary, merge_summary, dirty_state, generator="harness-runner", policy_summary=policy_summary)
+    completion_gate = build_completion_gate(
+        load_optional_json(files["harness"] / "spec.json", {}),
+        load_optional_json(files["harness"] / "features.json", {}),
+        task_pool,
+        request_summary,
+        merge_summary,
+        feedback_summary,
+        todo_summary,
+        load_optional_json(files["project_meta_path"], {}),
+        generator="harness-runner",
+    )
+    guard_state = build_guard_state(
+        root,
+        load_optional_json(files["project_meta_path"], {}),
+        queue_summary,
+        task_summary,
+        worker_summary,
+        daemon_summary,
+        worktree_registry,
+        merge_summary,
+        todo_summary,
+        completion_gate,
+        dirty_state,
+        generator="harness-runner",
+        policy_summary=policy_summary,
+    )
+    return guard_state
+
+
 def blocked_follow_up_kind(task: dict, route_decision: dict):
     reason = (route_decision.get("gateReason") or "").lower()
     if "session" in reason:
@@ -643,10 +701,21 @@ def cmd_tick(root: Path, trigger: str = "shell", dispatch_mode: str = "tmux"):
     request_summary = load_optional_json(files["request_summary_path"], {})
     thread_state = load_optional_json(files["thread_state_path"], {})
     log_index = load_optional_json(files["log_index_path"], {})
+    prior_runner_state = load_optional_json(files["runner_state_path"], {})
 
     process_merge_queue(root, generator="harness-runner")
     task_pool = load_json(files["harness"] / "task-pool.json")
     tasks = task_pool.get("tasks", [])
+    guard_state = global_guard_state(
+        root,
+        files,
+        task_pool=task_pool,
+        session_registry=session_registry,
+        heartbeats=heartbeats,
+        runner_state=prior_runner_state,
+        request_summary=request_summary,
+        policy_summary=policy_summary,
+    )
 
     active = find_active_tasks(tasks)
     recoverable = find_recoverable_tasks(tasks, heartbeats, policy_summary["heartbeat"]["recoverableAfterSeconds"])
@@ -667,6 +736,9 @@ def cmd_tick(root: Path, trigger: str = "shell", dispatch_mode: str = "tmux"):
 
     for task in recoverable:
         try:
+            if not guard_state.get("safeToExecute"):
+                blocked_routes.append({"taskId": task["taskId"], "gateStatus": "blocked", "gateReason": "; ".join(guard_state.get("blockers", []))})
+                continue
             preflight = evaluate_dispatch_preflight(
                 task,
                 request_summary=request_summary,
@@ -702,6 +774,20 @@ def cmd_tick(root: Path, trigger: str = "shell", dispatch_mode: str = "tmux"):
     if not live_runs and not dispatched and dispatchable:
         task = dispatchable[0]
         try:
+            if not guard_state.get("safeToExecute"):
+                blocked_routes.append({"taskId": task["taskId"], "gateStatus": "blocked", "gateReason": "; ".join(guard_state.get("blockers", []))})
+                write_runner_state(
+                    state_dir,
+                    trigger,
+                    active_runs=live_runs,
+                    recoverable_runs=[{"taskId": item["taskId"]} for item in recoverable],
+                    stale_runs=stale_runs,
+                    dispatchable_ids=[candidate.get("taskId") for candidate in dispatchable[1:]],
+                    errors=errors,
+                    blocked_routes=blocked_routes,
+                )
+                print(json.dumps({"ok": True, "liveRuns": len(live_runs), "dispatched": [], "recoverable": len(recoverable), "dispatchable": len(dispatchable), "blocked": blocked_routes, "errors": errors, "guardState": guard_state}, ensure_ascii=False, indent=2))
+                return 0
             preflight = evaluate_dispatch_preflight(
                 task,
                 request_summary=request_summary,
@@ -765,6 +851,7 @@ def cmd_tick(root: Path, trigger: str = "shell", dispatch_mode: str = "tmux"):
         "recoverable": len(recoverable),
         "dispatchable": len(latest_dispatchable),
         "blocked": blocked_routes,
+        "guardState": guard_state,
         "errors": errors,
     }
     print(json.dumps(result, ensure_ascii=False, indent=2))
@@ -785,11 +872,24 @@ def cmd_run(root: Path, task_id: str, trigger: str = "shell", dispatch_mode: str
     heartbeats = load_heartbeats(state_dir)
     log_index = load_optional_json(files["log_index_path"], {})
     session_registry = load_json(files["session_registry_path"])
+    guard_state = global_guard_state(
+        root,
+        files,
+        task_pool=task_pool,
+        session_registry=session_registry,
+        heartbeats=heartbeats,
+        runner_state=load_optional_json(files["runner_state_path"], {}),
+        request_summary=request_summary,
+        policy_summary=policy_summary,
+    )
 
     try:
         process_merge_queue(root, generator="harness-runner")
         task_pool = load_json(files["harness"] / "task-pool.json")
         task = find_task(task_pool.get("tasks", []), task_id)
+        if not guard_state.get("safeToExecute"):
+            print(json.dumps({"ok": False, "taskId": task_id, "gateStatus": "blocked", "gateReason": "; ".join(guard_state.get("blockers", [])), "guardState": guard_state}, ensure_ascii=False, indent=2))
+            return 1
         preflight = evaluate_dispatch_preflight(
             task,
             request_summary=request_summary,

@@ -10,6 +10,7 @@ Canonical public wrappers:
 - `harness-control`
 
 `harness-ops` remains the expert/project-local surface when you want the raw operator subcommands directly.
+It is not the first thing a new user should learn.
 
 Path:
 
@@ -42,6 +43,9 @@ Primary inputs:
 - `state/task-summary.json`
 - `state/worker-summary.json`
 - `state/daemon-summary.json`
+- `state/todo-summary.json`
+- `state/completion-gate.json`
+- `state/guard-state.json`
 - `state/request-summary.json`
 - `state/lineage-index.json`
 - `state/log-index.json`

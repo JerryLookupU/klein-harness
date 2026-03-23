@@ -8,6 +8,8 @@ from pathlib import Path
 from runtime_common import (
     TASK_ACTIVE_STATUSES,
     build_change_summary,
+    build_completion_gate,
+    build_guard_state,
     build_feedback_summary,
     build_intake_summary,
     build_lineage_index,
@@ -22,7 +24,10 @@ from runtime_common import (
     build_request_summary,
     build_task_summary,
     build_thread_state,
+    build_todo_summary,
     build_worker_summary,
+    collect_dirty_state,
+    apply_dirty_state_to_worktree_registry,
     context_rot_score,
     build_daemon_summary,
     evaluate_task_drift_checklist,
@@ -62,6 +67,7 @@ def main():
     task_pool = load_json(files["harness"] / "task-pool.json")
     work_items = load_json(files["harness"] / "work-items.json")
     spec = load_json(files["harness"] / "spec.json")
+    features = load_json(files["harness"] / "features.json")
     session_registry = load_json(files["session_registry_path"])
     feedback_entries = load_jsonl(files["feedback_log_path"])
     feedback_summary = build_feedback_summary(feedback_entries)
@@ -104,7 +110,50 @@ def main():
     daemon_summary = build_daemon_summary(daemon_state, runner_state, worker_summary, generator="klein-harness", policy_summary=policy_summary)
     merge_summary = build_merge_summary(merge_queue, worktree_registry, generator="klein-harness")
     research_summary = build_research_summary(research_index, generator="klein-harness")
+    project_meta = load_optional_json(files["project_meta_path"], {})
+    dirty_state = collect_dirty_state(root, task_pool, policy_summary)
+    worktree_registry = apply_dirty_state_to_worktree_registry(worktree_registry, dirty_state, generator="klein-harness")
+    todo_summary = build_todo_summary(
+        task_pool,
+        queue_summary,
+        request_summary,
+        merge_summary,
+        dirty_state,
+        generator="klein-harness",
+        policy_summary=policy_summary,
+    )
+    completion_gate = build_completion_gate(
+        spec,
+        features,
+        task_pool,
+        request_summary,
+        merge_summary,
+        feedback_summary,
+        todo_summary,
+        project_meta,
+        generator="klein-harness",
+    )
+    guard_state = build_guard_state(
+        root,
+        project_meta,
+        queue_summary,
+        task_summary,
+        worker_summary,
+        daemon_summary,
+        worktree_registry,
+        merge_summary,
+        todo_summary,
+        completion_gate,
+        dirty_state,
+        generator="klein-harness",
+        policy_summary=policy_summary,
+    )
     progress = build_progress_summary(progress, request_summary, task_summary, worker_summary, daemon_summary, generator="klein-harness")
+    progress["todoActionableCount"] = todo_summary.get("actionableTodoCount", 0)
+    progress["completionGateStatus"] = completion_gate.get("status")
+    progress["guardStatus"] = guard_state.get("status")
+    progress["pendingCheckpointCount"] = guard_state.get("pendingCheckpointCount", 0)
+    progress["unknownDirtyCount"] = guard_state.get("unknownDirtyCount", 0)
     active_request = request_summary.get("activeRequest") or {}
     active_binding = next(
         (
@@ -168,6 +217,11 @@ def main():
         "inspectionOverlayCount": intake_summary.get("inspectionOverlayCount", 0),
         "runtimeHealth": daemon_summary.get("runtimeHealth"),
         "dispatchBackendDefault": daemon_summary.get("dispatchBackendDefault"),
+        "guardStatus": guard_state.get("status"),
+        "completionGateStatus": completion_gate.get("status"),
+        "todoActionableCount": todo_summary.get("actionableTodoCount", 0),
+        "pendingCheckpointCount": guard_state.get("pendingCheckpointCount", 0),
+        "unknownDirtyCount": guard_state.get("unknownDirtyCount", 0),
     }
 
     rot_entries = []
@@ -288,6 +342,9 @@ def main():
         "intakeSummary": intake_summary,
         "threadState": thread_state,
         "changeSummary": change_summary,
+        "todoSummary": todo_summary,
+        "completionGate": completion_gate,
+        "guardState": guard_state,
         "contextRotWarnings": [item for item in rot_entries if item.get("contextRotStatus") in {"warning", "downgraded"}][:10],
         "driftChecklistFailures": drift_failures[:10],
         "runtimeHealth": daemon_summary.get("runtimeHealth"),
@@ -323,8 +380,17 @@ def main():
         "compactLogCount": log_index.get("compactLogCount", 0),
         "researchMemoCount": research_index.get("memoCount", 0),
         "researchModes": research_index.get("researchModes", {}),
+        "completionGateStatus": completion_gate.get("status"),
+        "todoActionableCount": todo_summary.get("actionableTodoCount", 0),
         "blocks": blocks,
     }
+
+    project_meta["schemaVersion"] = "1.0"
+    project_meta["generator"] = "klein-harness"
+    project_meta["generatedAt"] = now_iso()
+    project_meta["lastCompletionGateStatus"] = completion_gate.get("status")
+    project_meta["retireEligible"] = completion_gate.get("retireEligible", False)
+    write_json(files["project_meta_path"], project_meta)
 
     write_progress_projection(files, progress, generator="klein-harness")
     write_json(files["state_dir"] / "current.json", current_state)
@@ -339,6 +405,9 @@ def main():
     write_json(files["intake_summary_path"], intake_summary)
     write_json(files["thread_state_path"], thread_state)
     write_json(files["change_summary_path"], change_summary)
+    write_json(files["todo_summary_path"], todo_summary)
+    write_json(files["completion_gate_path"], completion_gate)
+    write_json(files["guard_state_path"], guard_state)
     write_json(files["queue_summary_path"], queue_summary)
     write_json(files["task_summary_path"], task_summary)
     write_json(files["worker_summary_path"], worker_summary)

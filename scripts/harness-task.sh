@@ -6,6 +6,11 @@ usage() {
 usage: harness-task <ROOT> <TASK_ID|REQUEST_ID> [detail|logs] [options...]
 
 Canonical task detail / lineage / log surface for Klein-Harness.
+
+Examples:
+  harness-task /repo T-003
+  harness-task /repo T-003 logs --detail
+  harness-task /repo R-004
 EOF
 }
 

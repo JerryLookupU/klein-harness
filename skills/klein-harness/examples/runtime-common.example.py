@@ -172,6 +172,14 @@ DEFAULT_POLICY_SUMMARY = {
         "conflictImpactStatus": "unsafe-conflict",
         "cleanImpactStatus": "non-conflicting",
     },
+    "guard": {
+        "maxRecentTodoItems": 10,
+        "maxDirtyEntries": 10,
+        "maxDirtyPathsSample": 8,
+        "unknownDirtyBlocksAutomation": True,
+        "autoCheckpointManagedDirty": True,
+        "maxRecentGuardBlockers": 10,
+    },
 }
 
 
@@ -271,6 +279,59 @@ def default_progress_state() -> dict:
         "lastAuditStatus": "unknown",
         "claimSummary": {},
         "legacyFallbackUsed": False,
+    }
+
+
+def default_todo_summary(*, generator: str) -> dict:
+    return {
+        "schemaVersion": SCHEMA_VERSION,
+        "generator": generator,
+        "generatedAt": now_iso(),
+        "actionableTodoCount": 0,
+        "blockedTodoCount": 0,
+        "completedTodoCount": 0,
+        "todoItems": [],
+        "nextTaskIds": [],
+        "checkpointTaskIds": [],
+        "mergeReadyTaskIds": [],
+    }
+
+
+def default_completion_gate(*, generator: str) -> dict:
+    return {
+        "schemaVersion": SCHEMA_VERSION,
+        "generator": generator,
+        "generatedAt": now_iso(),
+        "status": "open",
+        "satisfied": False,
+        "retireEligible": False,
+        "retired": False,
+        "remainingChecks": [],
+        "checks": {},
+        "evidenceRefs": [],
+    }
+
+
+def default_guard_state(*, generator: str) -> dict:
+    return {
+        "schemaVersion": SCHEMA_VERSION,
+        "generator": generator,
+        "generatedAt": now_iso(),
+        "status": "unknown",
+        "safeToExecute": False,
+        "repoReady": False,
+        "lockHealthy": False,
+        "completionGateStatus": "open",
+        "actionableTodoCount": 0,
+        "systemOwnedDirtyCount": 0,
+        "unknownDirtyCount": 0,
+        "pendingCheckpointCount": 0,
+        "blockers": [],
+        "warnings": [],
+        "systemOwnedDirty": [],
+        "unknownDirty": [],
+        "autoCheckpointEligibleTaskIds": [],
+        "conflictingExecution": [],
     }
 
 
@@ -376,6 +437,7 @@ def load_policy_summary(path: Path | None, default_generator: str = "klein-harne
         policy.setdefault("intake", DEFAULT_POLICY_SUMMARY["intake"])
         policy.setdefault("threading", DEFAULT_POLICY_SUMMARY["threading"])
         policy.setdefault("contextRot", DEFAULT_POLICY_SUMMARY["contextRot"])
+        policy.setdefault("guard", DEFAULT_POLICY_SUMMARY["guard"])
         return policy
     return build_policy_summary(generator=default_generator)
 
@@ -632,6 +694,9 @@ def ensure_runtime_scaffold(root: Path, generator: str = "harness-runtime"):
         "intake-summary.json",
         "thread-state.json",
         "change-summary.json",
+        "todo-summary.json",
+        "completion-gate.json",
+        "guard-state.json",
         "queue-summary.json",
         "task-summary.json",
         "worker-summary.json",
@@ -715,6 +780,9 @@ def ensure_runtime_scaffold(root: Path, generator: str = "harness-runtime"):
         "intake_summary_path": state_dir / "intake-summary.json",
         "thread_state_path": state_dir / "thread-state.json",
         "change_summary_path": state_dir / "change-summary.json",
+        "todo_summary_path": state_dir / "todo-summary.json",
+        "completion_gate_path": state_dir / "completion-gate.json",
+        "guard_state_path": state_dir / "guard-state.json",
         "task_summary_path": state_dir / "task-summary.json",
         "worker_summary_path": state_dir / "worker-summary.json",
         "daemon_summary_path": state_dir / "daemon-summary.json",
@@ -1539,6 +1607,462 @@ def build_progress_summary(
         }
     )
     return snapshot
+
+
+def git_repo_ready(root: Path) -> bool:
+    try:
+        run_command(["git", "rev-parse", "--show-toplevel"], cwd=root)
+        return True
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return False
+
+
+def parse_porcelain_paths(line: str) -> str | None:
+    entry = line[3:] if len(line) > 3 else ""
+    if " -> " in entry:
+        return entry.split(" -> ", 1)[1].strip() or None
+    return entry.strip() or None
+
+
+def git_dirty_entries(cwd: Path) -> list[dict]:
+    try:
+        result = run_command(["git", "status", "--porcelain", "--untracked-files=normal"], cwd=cwd)
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return []
+    entries = []
+    for raw_line in result.stdout.splitlines():
+        if not raw_line.strip():
+            continue
+        path = parse_porcelain_paths(raw_line)
+        if not path:
+            continue
+        entries.append(
+            {
+                "statusCode": raw_line[:2],
+                "path": path,
+            }
+        )
+    return entries
+
+
+def managed_dirty_task(task: dict) -> bool:
+    if task.get("claim", {}).get("agentId") == "harness-runner":
+        return True
+    if task.get("lastDispatchAt") or task.get("worktreePreparedAt"):
+        return True
+    return task.get("status") in {
+        "worktree_prepared",
+        "dispatched",
+        "running",
+        "resumed",
+        "recoverable",
+        "verified",
+        "merge_queued",
+        "merge_checked",
+        "merge_conflict",
+        "merged",
+        "completed",
+    }
+
+
+def dirty_entry_payload(*, scope: str, task: dict | None, worktree_path: str | None, provenance: str, entries: list[dict], policy_summary: dict) -> dict:
+    path_limit = policy_summary["guard"]["maxDirtyPathsSample"]
+    return {
+        "scope": scope,
+        "taskId": task.get("taskId") if task else None,
+        "threadKey": task.get("threadKey") if task else None,
+        "planEpoch": task.get("planEpoch") if task else None,
+        "worktreePath": worktree_path,
+        "branchName": task.get("branchName") if task else None,
+        "provenance": provenance,
+        "pendingCheckpoint": provenance == "system_owned",
+        "pathCount": len(entries),
+        "paths": bounded([entry.get("path") for entry in entries if entry.get("path")], path_limit),
+        "statusCodes": bounded([entry.get("statusCode") for entry in entries if entry.get("statusCode")], path_limit),
+        "detectedAt": now_iso(),
+    }
+
+
+def collect_dirty_state(root: Path, task_pool: dict | None, policy_summary: dict) -> dict:
+    tasks = (task_pool or {}).get("tasks", [])
+    repo_ready = git_repo_ready(root)
+    system_owned = []
+    unknown = []
+    if not repo_ready:
+        return {
+            "repoReady": False,
+            "systemOwnedDirty": [],
+            "unknownDirty": [],
+            "pendingCheckpointTaskIds": [],
+            "autoCheckpointEligibleTaskIds": [],
+        }
+
+    known_worktree_prefixes = [
+        f"{str(task.get('worktreePath')).rstrip('/')}/"
+        for task in tasks
+        if task.get("worktreePath")
+    ]
+    root_dirty = [
+        entry
+        for entry in git_dirty_entries(root)
+        if not str(entry.get("path") or "").startswith(".harness/")
+        and not str(entry.get("path") or "").startswith(".worktrees")
+        and not any(str(entry.get("path") or "").startswith(prefix) for prefix in known_worktree_prefixes)
+    ]
+    if root_dirty:
+        unknown.append(
+            dirty_entry_payload(
+                scope="repo_root",
+                task=None,
+                worktree_path=".",
+                provenance="unknown",
+                entries=root_dirty,
+                policy_summary=policy_summary,
+            )
+        )
+
+    for task in tasks:
+        worktree_rel = task.get("worktreePath")
+        if not worktree_rel:
+            continue
+        worktree_path = (root / worktree_rel).resolve()
+        if not worktree_path.exists():
+            continue
+        entries = git_dirty_entries(worktree_path)
+        if not entries:
+            continue
+        provenance = "system_owned" if managed_dirty_task(task) else "unknown"
+        payload = dirty_entry_payload(
+            scope="task_worktree",
+            task=task,
+            worktree_path=worktree_rel,
+            provenance=provenance,
+            entries=entries,
+            policy_summary=policy_summary,
+        )
+        if provenance == "system_owned":
+            system_owned.append(payload)
+        else:
+            unknown.append(payload)
+
+    pending_checkpoint_task_ids = bounded_unique(
+        [entry.get("taskId") for entry in system_owned if entry.get("taskId")],
+        policy_summary["guard"]["maxRecentTodoItems"],
+    )
+    auto_checkpoint_eligible = pending_checkpoint_task_ids if not unknown else []
+    return {
+        "repoReady": True,
+        "systemOwnedDirty": bounded(system_owned, policy_summary["guard"]["maxDirtyEntries"]),
+        "unknownDirty": bounded(unknown, policy_summary["guard"]["maxDirtyEntries"]),
+        "pendingCheckpointTaskIds": pending_checkpoint_task_ids,
+        "autoCheckpointEligibleTaskIds": auto_checkpoint_eligible,
+    }
+
+
+def apply_dirty_state_to_worktree_registry(worktree_registry: dict, dirty_state: dict, *, generator: str) -> dict:
+    registry = json.loads(json.dumps(worktree_registry or default_worktree_registry(generator=generator)))
+    by_task = {}
+    for entry in dirty_state.get("systemOwnedDirty", []) + dirty_state.get("unknownDirty", []):
+        task_id = entry.get("taskId")
+        if task_id:
+            by_task[task_id] = entry
+    updated = []
+    for item in registry.get("worktrees", []):
+        dirty = by_task.get(item.get("taskId"))
+        next_item = dict(item)
+        if dirty:
+            next_item["dirtyState"] = "system_owned_dirty" if dirty.get("provenance") == "system_owned" else "unknown_dirty"
+            next_item["dirtyProvenance"] = dirty.get("provenance")
+            next_item["dirtyPathCount"] = dirty.get("pathCount", 0)
+            next_item["dirtyPathsSample"] = dirty.get("paths", [])
+            next_item["pendingCheckpoint"] = dirty.get("pendingCheckpoint", False)
+            next_item["dirtyDetectedAt"] = dirty.get("detectedAt")
+        else:
+            next_item["dirtyState"] = "clean"
+            next_item["dirtyProvenance"] = None
+            next_item["dirtyPathCount"] = 0
+            next_item["dirtyPathsSample"] = []
+            next_item["pendingCheckpoint"] = False
+            next_item["dirtyDetectedAt"] = None
+        updated.append(next_item)
+    registry["worktrees"] = updated
+    registry["generatedAt"] = now_iso()
+    registry["generator"] = generator
+    return registry
+
+
+def build_todo_summary(
+    task_pool: dict | None,
+    queue_summary: dict,
+    request_summary: dict,
+    merge_summary: dict,
+    dirty_state: dict,
+    *,
+    generator: str,
+    policy_summary: dict,
+) -> dict:
+    tasks = (task_pool or {}).get("tasks", [])
+    hot_limit = policy_summary["guard"]["maxRecentTodoItems"]
+    actionable_statuses = {
+        "queued",
+        "bound",
+        "worktree_prepared",
+        "dispatched",
+        "running",
+        "resumed",
+        "recoverable",
+        "verified",
+        "merge_queued",
+        "merge_checked",
+        "merge_conflict",
+        "merge_resolution_requested",
+    }
+    actionable_items = []
+    blocked_count = 0
+    completed_count = 0
+    for task in sorted(tasks, key=task_sort_key_for_summary):
+        status = task.get("status")
+        if status in TASK_COMPLETED_STATUSES or status == "merged":
+            completed_count += 1
+            continue
+        if status in TASK_SUPERSEDED_STATUSES:
+            blocked_count += 1
+            continue
+        if status not in actionable_statuses:
+            continue
+        blocked_reason = None
+        if task.get("checkpointRequired"):
+            blocked_reason = task.get("checkpointReason") or "checkpoint required"
+        elif task.get("supersededByRequestId"):
+            blocked_reason = f"superseded by {task.get('supersededByRequestId')}"
+        elif task.get("mergeStatus") == "merge_conflict":
+            blocked_reason = "merge conflict requires resolution"
+        actionable_items.append(
+            {
+                "taskId": task.get("taskId"),
+                "title": task.get("title"),
+                "status": status,
+                "threadKey": task.get("threadKey"),
+                "planEpoch": task.get("planEpoch"),
+                "priority": task.get("priority"),
+                "roleHint": task.get("roleHint"),
+                "worktreePath": task.get("worktreePath"),
+                "integrationBranch": integration_branch_for_task(task, task_pool),
+                "mergeStatus": task.get("mergeStatus"),
+                "checkpointRequired": bool(task.get("checkpointRequired")),
+                "blockedReason": blocked_reason,
+            }
+        )
+        if blocked_reason:
+            blocked_count += 1
+    checkpoint_task_ids = bounded_unique(
+        [
+            *(dirty_state.get("pendingCheckpointTaskIds") or []),
+            *[task.get("taskId") for task in tasks if task.get("checkpointRequired") and task.get("taskId")],
+        ],
+        hot_limit,
+    )
+    return {
+        "schemaVersion": SCHEMA_VERSION,
+        "generator": generator,
+        "generatedAt": now_iso(),
+        "actionableTodoCount": len(actionable_items),
+        "blockedTodoCount": blocked_count,
+        "completedTodoCount": completed_count,
+        "queueDepth": queue_summary.get("queueDepth", 0),
+        "activeRequestId": (request_summary.get("activeRequest") or {}).get("requestId"),
+        "todoItems": bounded(actionable_items, hot_limit),
+        "nextTaskIds": bounded(
+            [item.get("taskId") for item in actionable_items if not item.get("blockedReason")],
+            hot_limit,
+        ),
+        "checkpointTaskIds": checkpoint_task_ids,
+        "mergeReadyTaskIds": bounded(
+            [item.get("taskId") for item in merge_summary.get("readyToMerge", []) if item.get("taskId")],
+            hot_limit,
+        ),
+    }
+
+
+def completion_check(name: str, ok: bool, detail: str) -> dict:
+    return {"name": name, "ok": ok, "detail": detail}
+
+
+def build_completion_gate(
+    spec: dict | None,
+    features: dict | None,
+    task_pool: dict | None,
+    request_summary: dict,
+    merge_summary: dict,
+    feedback_summary: dict,
+    todo_summary: dict,
+    project_meta: dict | None,
+    *,
+    generator: str,
+) -> dict:
+    tasks = (task_pool or {}).get("tasks", [])
+    feature_items = (features or {}).get("features", [])
+    retired = (project_meta or {}).get("lifecycle") == "archived"
+    open_task_count = sum(
+        1
+        for task in tasks
+        if task.get("status") not in TASK_COMPLETED_STATUSES | TASK_SUPERSEDED_STATUSES | {"merged"}
+    )
+    failing_task_ids = [task.get("taskId") for task in tasks if task.get("verificationStatus") == "fail"]
+    feature_failures = [
+        item.get("id")
+        for item in feature_items
+        if item.get("verificationStatus") not in {None, "pass", "done", "verified", "skipped"}
+    ]
+    open_requests = sum(
+        1
+        for key, value in (request_summary.get("requestCounts") or {}).items()
+        if key not in REQUEST_TERMINAL_STATUSES and value
+    )
+    checks = {
+        "todoDrained": completion_check("todoDrained", todo_summary.get("actionableTodoCount", 0) == 0, f"actionableTodoCount={todo_summary.get('actionableTodoCount', 0)}"),
+        "requestsSettled": completion_check("requestsSettled", open_requests == 0, f"openRequests={open_requests}"),
+        "tasksSettled": completion_check("tasksSettled", open_task_count == 0, f"openTaskCount={open_task_count}"),
+        "verificationHealthy": completion_check(
+            "verificationHealthy",
+            not feature_failures and not failing_task_ids,
+            f"featureFailures={feature_failures} failingTaskIds={failing_task_ids}",
+        ),
+        "mergeSettled": completion_check(
+            "mergeSettled",
+            merge_summary.get("queueDepth", 0) == 0 or (
+                merge_summary.get("readyToMergeCount", 0) == 0 and merge_summary.get("conflictCount", 0) == 0
+            ),
+            f"queueDepth={merge_summary.get('queueDepth', 0)} readyToMerge={merge_summary.get('readyToMergeCount', 0)} conflicts={merge_summary.get('conflictCount', 0)}",
+        ),
+    }
+    satisfied = all(item["ok"] for item in checks.values())
+    status = "retired" if retired else ("satisfied" if satisfied else "open")
+    return {
+        "schemaVersion": SCHEMA_VERSION,
+        "generator": generator,
+        "generatedAt": now_iso(),
+        "status": status,
+        "satisfied": satisfied,
+        "retireEligible": satisfied and not retired,
+        "retired": retired,
+        "remainingChecks": [item for item in checks.values() if not item["ok"]],
+        "checks": checks,
+        "specRevision": (spec or {}).get("specRevision"),
+        "evidenceRefs": [
+            ".harness/spec.json",
+            ".harness/features.json",
+            ".harness/task-pool.json",
+            ".harness/state/todo-summary.json",
+            ".harness/state/merge-summary.json",
+        ],
+    }
+
+
+def conflicting_execution_entries(worker_summary: dict, *, policy_summary: dict) -> list[dict]:
+    seen_sessions = {}
+    conflicts = []
+    for item in worker_summary.get("workerNodes", []):
+        session = item.get("backendSession") or item.get("nodeId")
+        if not session or item.get("dispatchBackend") == "print":
+            continue
+        prior = seen_sessions.get(session)
+        if prior and prior.get("taskId") != item.get("taskId"):
+            conflicts.append(
+                {
+                    "backendSession": session,
+                    "taskIds": [prior.get("taskId"), item.get("taskId")],
+                    "dispatchBackend": item.get("dispatchBackend"),
+                }
+            )
+        else:
+            seen_sessions[session] = item
+    return bounded(conflicts, policy_summary["guard"]["maxRecentGuardBlockers"])
+
+
+def task_sort_key_for_summary(task: dict) -> tuple:
+    return (priority_rank(task.get("priority")), task.get("taskId") or "")
+
+
+def build_guard_state(
+    root: Path,
+    project_meta: dict | None,
+    queue_summary: dict,
+    task_summary: dict,
+    worker_summary: dict,
+    daemon_summary: dict,
+    worktree_registry: dict,
+    merge_summary: dict,
+    todo_summary: dict,
+    completion_gate: dict,
+    dirty_state: dict,
+    *,
+    generator: str,
+    policy_summary: dict,
+) -> dict:
+    blockers = []
+    warnings = []
+    repo_ready = dirty_state.get("repoReady", False)
+    if not repo_ready:
+        blockers.append("project root is not a git repository")
+    conflicting = conflicting_execution_entries(worker_summary, policy_summary=policy_summary)
+    if conflicting:
+        blockers.append("conflicting live execution detected")
+    unknown_dirty = dirty_state.get("unknownDirty", [])
+    if unknown_dirty and policy_summary["guard"]["unknownDirtyBlocksAutomation"]:
+        blockers.append("unknown dirty worktree blocks automation")
+    system_owned_dirty = dirty_state.get("systemOwnedDirty", [])
+    if system_owned_dirty:
+        warnings.append("managed dirty worktree pending checkpoint")
+    if daemon_summary.get("status") == "running" and daemon_summary.get("runtimeHealth") == "degraded":
+        blockers.append("daemon runtime health degraded")
+    if any(item.get("status") == "worktree_missing" for item in worktree_registry.get("worktrees", [])):
+        blockers.append("worktree state incoherent")
+    if merge_summary.get("conflictCount", 0) > 0:
+        warnings.append("merge conflicts open")
+    if completion_gate.get("retired"):
+        blockers.append("loop already archived")
+    elif completion_gate.get("satisfied"):
+        blockers.append("completion gate already satisfied")
+    if todo_summary.get("actionableTodoCount", 0) == 0 and not completion_gate.get("satisfied"):
+        blockers.append("no actionable todo")
+    status = "blocked" if blockers else "ready"
+    if completion_gate.get("retireEligible"):
+        status = "retire_ready"
+    if completion_gate.get("retired"):
+        status = "archived"
+    return {
+        "schemaVersion": SCHEMA_VERSION,
+        "generator": generator,
+        "generatedAt": now_iso(),
+        "projectLifecycle": (project_meta or {}).get("lifecycle"),
+        "status": status,
+        "safeToExecute": not blockers and not completion_gate.get("retired"),
+        "repoReady": repo_ready,
+        "lockHealthy": daemon_summary.get("status") != "running" or daemon_summary.get("runtimeHealth") == "healthy",
+        "completionGateStatus": completion_gate.get("status"),
+        "completionGateSatisfied": completion_gate.get("satisfied", False),
+        "retireEligible": completion_gate.get("retireEligible", False),
+        "actionableTodoCount": todo_summary.get("actionableTodoCount", 0),
+        "systemOwnedDirtyCount": len(system_owned_dirty),
+        "unknownDirtyCount": len(unknown_dirty),
+        "pendingCheckpointCount": len(dirty_state.get("pendingCheckpointTaskIds", [])),
+        "blockers": bounded(blockers, policy_summary["guard"]["maxRecentGuardBlockers"]),
+        "warnings": bounded(warnings, policy_summary["guard"]["maxRecentGuardBlockers"]),
+        "systemOwnedDirty": bounded(system_owned_dirty, policy_summary["guard"]["maxDirtyEntries"]),
+        "unknownDirty": bounded(unknown_dirty, policy_summary["guard"]["maxDirtyEntries"]),
+        "autoCheckpointEligibleTaskIds": bounded(
+            dirty_state.get("autoCheckpointEligibleTaskIds", []),
+            policy_summary["guard"]["maxRecentTodoItems"],
+        ),
+        "pendingCheckpointTaskIds": bounded(
+            dirty_state.get("pendingCheckpointTaskIds", []),
+            policy_summary["guard"]["maxRecentTodoItems"],
+        ),
+        "conflictingExecution": conflicting,
+        "mergeQueueDepth": merge_summary.get("queueDepth", 0),
+        "activeWorktreeCount": len(worktree_registry.get("worktrees", [])),
+    }
 
 
 def normalize_context_paths(root: Path, values: list[str]) -> list[str]:
@@ -2497,20 +3021,25 @@ def classify_submission(request: dict, *, index: dict, task_map: dict, thread_st
         canonical_goal_hash,
         evidence_fp,
     )
-    clause_segments = detect_compound_segments(request.get("goal") or "")
-    clause_kinds = [classify_goal_clause(segment, has_context=bool(request.get("contextPaths"))) for segment in clause_segments]
-    has_multiple_kinds = len(set(clause_kinds)) > 1
-    initial_intent = clause_kinds[0] if clause_kinds else "fresh_work"
-    if has_multiple_kinds:
-        normalized_intent = "compound_split"
-    elif runtime_internal_request and kind_hint in {"audit", "analysis", "status"}:
+    if runtime_internal_request:
+        # Internal follow-up requests are already normalized control-plane effects.
+        # Do not re-run compound/intake splitting on runtime-generated goals.
+        clause_segments = [request.get("goal") or ""]
+        clause_kinds = ["fresh_work"]
+        has_multiple_kinds = False
+        initial_intent = "fresh_work"
         normalized_intent = "fresh_work"
-    elif runtime_internal_request:
-        normalized_intent = "fresh_work"
-    elif target_request and initial_intent == "fresh_work":
-        normalized_intent = "append_change"
     else:
-        normalized_intent = initial_intent
+        clause_segments = detect_compound_segments(request.get("goal") or "")
+        clause_kinds = [classify_goal_clause(segment, has_context=bool(request.get("contextPaths"))) for segment in clause_segments]
+        has_multiple_kinds = len(set(clause_kinds)) > 1
+        initial_intent = clause_kinds[0] if clause_kinds else "fresh_work"
+        if has_multiple_kinds:
+            normalized_intent = "compound_split"
+        elif target_request and initial_intent == "fresh_work":
+            normalized_intent = "append_change"
+        else:
+            normalized_intent = initial_intent
 
     existing_thread_requests = recent_requests_for_thread(index, thread_key)
     duplicate_of = next(

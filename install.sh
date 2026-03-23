@@ -307,11 +307,7 @@ if [[ "$HELPERS_INSTALLED" -eq 1 ]]; then
   echo "  - harness-tasks"
   echo "  - harness-task"
   echo "  - harness-control"
-  echo "Compatibility helpers remain available:"
-  echo "  - harness-init"
-  echo "  - harness-bootstrap"
-  echo "  - harness-report"
-  echo "  - harness-kick"
+  echo "Compatibility shims are still installed, but the canonical UX is the 4 commands above."
 fi
 
 echo "Restart Codex to pick up new skills."

@@ -388,6 +388,11 @@ TASK_DETAIL_JSON="$TMP_ROOT/task-detail.json"
 TASK_LOG_JSON="$TMP_ROOT/task-log.json"
 CONTROL_DAEMON_JSON="$TMP_ROOT/control-daemon.json"
 CONTROL_ARCHIVE_JSON="$TMP_ROOT/control-archive.json"
+UNKNOWN_DIRTY_GUARD_JSON="$TMP_ROOT/unknown-dirty-guard.json"
+MANAGED_DIRTY_GUARD_JSON="$TMP_ROOT/managed-dirty-guard.json"
+MANAGED_DIRTY_WORKTREE_JSON="$TMP_ROOT/managed-dirty-worktree.json"
+CONTROL_PROJECT_ARCHIVE_JSON="$TMP_ROOT/control-project-archive.json"
+FINAL_COMPLETION_GATE_JSON="$TMP_ROOT/final-completion-gate.json"
 
 harness-submit "$PROJECT_ROOT" --kind implementation --goal "Apply smoke runtime patch" --source smoke > "$SUBMIT_JSON"
 REQUEST_ID="$(python3 - <<'PY' "$SUBMIT_JSON"
@@ -486,6 +491,16 @@ python3 "$PROJECT_ROOT/.harness/scripts/refresh-state.py" "$PROJECT_ROOT" >/dev/
 harness-report "$PROJECT_ROOT" --request-id "$BUG_REQUEST_ID" --format json > "$RCA_REPORT_JSON"
 "$PROJECT_ROOT/.harness/bin/harness-log-search" "$PROJECT_ROOT" --task-id T-100 --keyword smoke --json > "$LOG_SEARCH_JSON"
 "$PROJECT_ROOT/.harness/bin/harness-log-search" "$PROJECT_ROOT" --task-id T-100 --keyword smoke --detail --json > "$LOG_SEARCH_DETAIL_JSON"
+echo "operator unknown dirty" > "$PROJECT_ROOT/manual-unknown-dirty.txt"
+python3 "$PROJECT_ROOT/.harness/scripts/refresh-state.py" "$PROJECT_ROOT" >/dev/null
+cp "$PROJECT_ROOT/.harness/state/guard-state.json" "$UNKNOWN_DIRTY_GUARD_JSON"
+rm -f "$PROJECT_ROOT/manual-unknown-dirty.txt"
+echo "managed dirty" > "$PROJECT_ROOT/.worktrees/T-100-smoke/managed-dirty.txt"
+python3 "$PROJECT_ROOT/.harness/scripts/refresh-state.py" "$PROJECT_ROOT" >/dev/null
+cp "$PROJECT_ROOT/.harness/state/guard-state.json" "$MANAGED_DIRTY_GUARD_JSON"
+cp "$PROJECT_ROOT/.harness/state/worktree-registry.json" "$MANAGED_DIRTY_WORKTREE_JSON"
+rm -f "$PROJECT_ROOT/.worktrees/T-100-smoke/managed-dirty.txt"
+python3 "$PROJECT_ROOT/.harness/scripts/refresh-state.py" "$PROJECT_ROOT" >/dev/null
 "$PROJECT_ROOT/.harness/bin/harness-runner" daemon "$PROJECT_ROOT" --interval 1 --dispatch-mode print --replace >/dev/null
 sleep 2
 python3 "$PROJECT_ROOT/.harness/scripts/refresh-state.py" "$PROJECT_ROOT" >/dev/null
@@ -504,9 +519,12 @@ harness-task "$PROJECT_ROOT" T-100 --format json > "$TASK_DETAIL_JSON"
 harness-task "$PROJECT_ROOT" T-100 logs --detail --format json > "$TASK_LOG_JSON"
 harness-control "$PROJECT_ROOT" daemon status --format json > "$CONTROL_DAEMON_JSON"
 harness-control "$PROJECT_ROOT" task T-100 archive --reason "smoke archive" --format json > "$CONTROL_ARCHIVE_JSON"
+harness-control "$PROJECT_ROOT" project archive --reason "smoke project archive" --format json > "$CONTROL_PROJECT_ARCHIVE_JSON"
+python3 "$PROJECT_ROOT/.harness/scripts/refresh-state.py" "$PROJECT_ROOT" >/dev/null
+cp "$PROJECT_ROOT/.harness/state/completion-gate.json" "$FINAL_COMPLETION_GATE_JSON"
 "$PROJECT_ROOT/.harness/bin/harness-runner" daemon-stop "$PROJECT_ROOT" >/dev/null
 
-python3 - <<'PY' "$PROJECT_ROOT" "$AUTO_INIT_ROOT" "$AUTO_INIT_JSON" "$REQUEST_ID" "$BUG_REQUEST_ID" "$RECONCILE_JSON" "$RUN_JSON" "$RECOVER_JSON" "$FINALIZE_JSON" "$REPORT_JSON" "$DUPLICATE_SUBMIT_JSON" "$CONTEXT_SUBMIT_JSON" "$INSPECTION_SUBMIT_JSON" "$APPEND_SUBMIT_JSON" "$APPEND2_SUBMIT_JSON" "$COMPOUND_SUBMIT_JSON" "$INSPECTION_RECONCILE_JSON" "$APPEND_RECONCILE_JSON" "$APPEND2_RECONCILE_JSON" "$COMPOUND_RECONCILE_JSON" "$BUG_RECONCILE_JSON" "$REPAIR_RECONCILE_JSON" "$REPAIR_RUN_JSON" "$REPAIR_FINALIZE_JSON" "$RCA_REPORT_JSON" "$LOG_SEARCH_JSON" "$LOG_SEARCH_DETAIL_JSON" "$OPS_TOP_JSON" "$OPS_QUEUE_JSON" "$OPS_WORKERS_JSON" "$OPS_TASK_JSON" "$OPS_DAEMON_JSON" "$OPS_WORKTREES_JSON" "$OPS_MERGE_QUEUE_JSON" "$OPS_CONFLICTS_JSON" "$OPS_DOCTOR_JSON" "$OPS_WATCH_TEXT" "$TASKS_JSON" "$TASK_DETAIL_JSON" "$TASK_LOG_JSON" "$CONTROL_DAEMON_JSON" "$CONTROL_ARCHIVE_JSON"
+python3 - <<'PY' "$PROJECT_ROOT" "$AUTO_INIT_ROOT" "$AUTO_INIT_JSON" "$REQUEST_ID" "$BUG_REQUEST_ID" "$RECONCILE_JSON" "$RUN_JSON" "$RECOVER_JSON" "$FINALIZE_JSON" "$REPORT_JSON" "$DUPLICATE_SUBMIT_JSON" "$CONTEXT_SUBMIT_JSON" "$INSPECTION_SUBMIT_JSON" "$APPEND_SUBMIT_JSON" "$APPEND2_SUBMIT_JSON" "$COMPOUND_SUBMIT_JSON" "$INSPECTION_RECONCILE_JSON" "$APPEND_RECONCILE_JSON" "$APPEND2_RECONCILE_JSON" "$COMPOUND_RECONCILE_JSON" "$BUG_RECONCILE_JSON" "$REPAIR_RECONCILE_JSON" "$REPAIR_RUN_JSON" "$REPAIR_FINALIZE_JSON" "$RCA_REPORT_JSON" "$LOG_SEARCH_JSON" "$LOG_SEARCH_DETAIL_JSON" "$OPS_TOP_JSON" "$OPS_QUEUE_JSON" "$OPS_WORKERS_JSON" "$OPS_TASK_JSON" "$OPS_DAEMON_JSON" "$OPS_WORKTREES_JSON" "$OPS_MERGE_QUEUE_JSON" "$OPS_CONFLICTS_JSON" "$OPS_DOCTOR_JSON" "$OPS_WATCH_TEXT" "$TASKS_JSON" "$TASK_DETAIL_JSON" "$TASK_LOG_JSON" "$CONTROL_DAEMON_JSON" "$CONTROL_ARCHIVE_JSON" "$UNKNOWN_DIRTY_GUARD_JSON" "$MANAGED_DIRTY_GUARD_JSON" "$MANAGED_DIRTY_WORKTREE_JSON" "$CONTROL_PROJECT_ARCHIVE_JSON" "$FINAL_COMPLETION_GATE_JSON"
 import json
 import sys
 from pathlib import Path
@@ -553,6 +571,11 @@ task_detail = json.load(open(sys.argv[39]))
 task_log = json.load(open(sys.argv[40]))
 control_daemon = json.load(open(sys.argv[41]))
 control_archive = json.load(open(sys.argv[42]))
+unknown_dirty_guard = json.load(open(sys.argv[43]))
+managed_dirty_guard = json.load(open(sys.argv[44]))
+managed_dirty_worktree = json.load(open(sys.argv[45]))
+control_project_archive = json.load(open(sys.argv[46]))
+final_completion_gate = json.load(open(sys.argv[47]))
 
 assert auto_init_submit["ok"] is True
 assert (auto_init_root / ".harness").exists()
@@ -712,6 +735,9 @@ merge_queue = json.load(open(project_root / ".harness/state/merge-queue.json"))
 merge_summary = json.load(open(project_root / ".harness/state/merge-summary.json"))
 policy_summary = json.load(open(project_root / ".harness/state/policy-summary.json"))
 research_summary = json.load(open(project_root / ".harness/state/research-summary.json"))
+todo_summary = json.load(open(project_root / ".harness/state/todo-summary.json"))
+completion_gate = json.load(open(project_root / ".harness/state/completion-gate.json"))
+guard_state = json.load(open(project_root / ".harness/state/guard-state.json"))
 
 assert queue_summary["totalRequests"] >= 2
 assert intake_summary["byFrontDoorClass"]
@@ -733,9 +759,15 @@ assert daemon_summary["runtimeHealth"] in {"healthy", "degraded"}
 assert policy_summary["dispatch"]["defaultBackend"] == "tmux"
 assert research_summary["memoCount"] >= 1
 assert report["intakeSummary"]["byFrontDoorClass"]
+assert "actionableTodoCount" in todo_summary
+assert completion_gate["status"] in {"open", "satisfied", "retired"}
+assert guard_state["status"] in {"ready", "blocked", "retire_ready", "archived"}
+assert guard_state["pendingCheckpointCount"] >= 0
 
 assert ops_top["dispatchBackendDefault"] == "print"
 assert ops_top["runtimeHealth"] in {"healthy", "degraded"}
+assert ops_top["guardStatus"] in {"ready", "blocked", "retire_ready", "archived"}
+assert ops_top["completionGateStatus"] in {"open", "satisfied", "retired"}
 assert ops_queue["queueDepth"] >= 0
 assert "dispatchBackendCounts" in ops_workers
 assert ops_task["taskId"] == "T-100"
@@ -757,10 +789,24 @@ assert task_log["frontMatter"]["taskId"] == "T-100"
 assert control_daemon["dispatchBackendDefault"] == "print"
 assert control_archive["action"] == "archive"
 assert control_archive["taskId"] == "T-100"
+assert unknown_dirty_guard["unknownDirtyCount"] >= 1
+assert unknown_dirty_guard["safeToExecute"] is False
+assert any("unknown dirty worktree" in item for item in unknown_dirty_guard["blockers"])
+assert managed_dirty_guard["systemOwnedDirtyCount"] >= 1
+assert managed_dirty_guard["pendingCheckpointCount"] >= 1
+managed_worktree = next(item for item in managed_dirty_worktree["worktrees"] if item["taskId"] == "T-100")
+assert managed_worktree["dirtyState"] == "system_owned_dirty"
+assert managed_worktree["pendingCheckpoint"] is True
+assert control_project_archive["action"] == "archive"
+assert control_project_archive["status"] == "archived"
+assert final_completion_gate["status"] == "retired"
+assert final_completion_gate["retired"] is True
 
 archived_task_pool = json.load(open(project_root / ".harness/task-pool.json"))
 archived_task = next(task for task in archived_task_pool["tasks"] if task["taskId"] == "T-100")
 assert archived_task["cleanupStatus"] == "archived"
+project_meta = json.load(open(project_root / ".harness/project-meta.json"))
+assert project_meta["lifecycle"] == "archived"
 PY
 
 echo "release smoke passed"

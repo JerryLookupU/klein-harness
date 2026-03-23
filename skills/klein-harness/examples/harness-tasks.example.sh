@@ -2,7 +2,14 @@
 set -euo pipefail
 
 if [[ $# -lt 1 ]]; then
-  echo "usage: $0 <ROOT> [summary|queue|tasks|requests|workers|daemon|blockers|logs|worktrees|merge-queue|integration|conflicts] [options...]" >&2
+  cat <<'EOF' >&2
+usage: harness-tasks <ROOT> [summary|queue|tasks|requests|workers|daemon|blockers|logs|worktrees|merge-queue|integration|conflicts] [options...]
+
+Examples:
+  harness-tasks /repo
+  harness-tasks /repo queue
+  harness-tasks /repo workers --format json
+EOF
   exit 1
 fi
 

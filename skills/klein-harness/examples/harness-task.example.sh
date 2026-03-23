@@ -2,7 +2,14 @@
 set -euo pipefail
 
 if [[ $# -lt 2 ]]; then
-  echo "usage: $0 <ROOT> <TASK_ID|REQUEST_ID> [detail|logs] [options...]" >&2
+  cat <<'EOF' >&2
+usage: harness-task <ROOT> <TASK_ID|REQUEST_ID> [detail|logs] [options...]
+
+Examples:
+  harness-task /repo T-003
+  harness-task /repo T-003 logs --detail
+  harness-task /repo R-004
+EOF
   exit 1
 fi
 

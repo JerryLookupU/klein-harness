@@ -26,6 +26,9 @@ def collect_state(root: Path):
         "intake": load_summary(files["intake_summary_path"], {}),
         "thread": load_summary(files["thread_state_path"], {}),
         "change": load_summary(files["change_summary_path"], {}),
+        "todo": load_summary(files["todo_summary_path"], {}),
+        "completionGate": load_summary(files["completion_gate_path"], {}),
+        "guard": load_summary(files["guard_state_path"], {}),
         "task": load_summary(files["task_summary_path"], {}),
         "worker": load_summary(files["worker_summary_path"], {}),
         "daemon": load_summary(files["daemon_summary_path"], {}),
@@ -38,6 +41,7 @@ def collect_state(root: Path):
         "log": load_summary(files["log_index_path"], {}),
         "policy": load_summary(files["policy_summary_path"], {}),
         "research": load_summary(files["research_summary_path"], {}),
+        "projectMeta": load_summary(files["project_meta_path"], {}),
         "requestIndex": load_summary(files["request_index_path"], {}),
         "taskPool": load_summary(files["harness"] / "task-pool.json", {}),
     }
@@ -53,8 +57,12 @@ def top_view(state: dict):
     worker = state["worker"]
     daemon = state["daemon"]
     runtime = state["runtime"]
+    todo = state["todo"]
+    guard = state["guard"]
+    gate = state["completionGate"]
     current = state["current"]
     return {
+        "projectLifecycle": state["projectMeta"].get("lifecycle"),
         "mode": progress.get("mode"),
         "planningStage": progress.get("planningStage"),
         "currentFocus": progress.get("currentFocus"),
@@ -69,6 +77,11 @@ def top_view(state: dict):
         "activeThreadCount": thread.get("activeThreadCount", 0),
         "appendChangeCount": change.get("appendChangeCount", 0),
         "supersededQueuedTaskCount": change.get("supersededQueuedTaskCount", 0),
+        "todoActionableCount": todo.get("actionableTodoCount", 0),
+        "completionGateStatus": gate.get("status"),
+        "guardStatus": guard.get("status"),
+        "pendingCheckpointCount": guard.get("pendingCheckpointCount", 0),
+        "unknownDirtyCount": guard.get("unknownDirtyCount", 0),
         "activeTaskCount": runtime.get("activeTaskCount", 0),
         "workerCount": worker.get("workerCount", 0),
         "runtimeHealth": daemon.get("runtimeHealth"),
@@ -83,6 +96,7 @@ def top_view(state: dict):
         "mergeConflictCount": state["mergeSummary"].get("conflictCount", 0),
         "contextRotWarnings": runtime.get("contextRotWarnings", []),
         "driftChecklistFailures": runtime.get("driftChecklistFailures", []),
+        "guardBlockers": guard.get("blockers", []),
     }
 
 
@@ -129,6 +143,7 @@ def blockers_view(state: dict):
         "routeBlocked": state["task"].get("blockedRoutes", []),
         "logBlocked": state["log"].get("openBlockers", []),
         "mergeBlocked": state["mergeSummary"].get("openConflicts", []),
+        "guardBlocked": state["guard"].get("blockers", []),
     }
 
 
@@ -185,6 +200,10 @@ def doctor_view(state: dict):
         warnings.append(f"drift checklist failures: {len(state['runtime'].get('driftChecklistFailures', []))}")
     if state["runtime"].get("contextRotWarnings"):
         warnings.append(f"context rot warnings: {len(state['runtime'].get('contextRotWarnings', []))}")
+    if state["guard"].get("unknownDirtyCount", 0) > 0:
+        issues.append(f"unknown dirty worktrees: {state['guard'].get('unknownDirtyCount', 0)}")
+    if state["guard"].get("pendingCheckpointCount", 0) > 0:
+        warnings.append(f"pending checkpoints: {state['guard'].get('pendingCheckpointCount', 0)}")
     return {
         "ok": not issues,
         "issues": issues,
@@ -201,6 +220,7 @@ def print_text(title: str, payload):
     if title == "top":
         lines = [
             "== Harness Ops Top ==",
+            f"projectLifecycle: {payload.get('projectLifecycle')}",
             f"mode: {payload.get('mode')}",
             f"planningStage: {payload.get('planningStage')}",
             f"focus: {payload.get('currentFocus')}",
@@ -214,6 +234,11 @@ def print_text(title: str, payload):
             f"activeThreadCount: {payload.get('activeThreadCount')}",
             f"appendChangeCount: {payload.get('appendChangeCount')}",
             f"supersededQueuedTaskCount: {payload.get('supersededQueuedTaskCount')}",
+            f"todoActionableCount: {payload.get('todoActionableCount')}",
+            f"completionGateStatus: {payload.get('completionGateStatus')}",
+            f"guardStatus: {payload.get('guardStatus')}",
+            f"pendingCheckpointCount: {payload.get('pendingCheckpointCount')}",
+            f"unknownDirtyCount: {payload.get('unknownDirtyCount')}",
             f"activeTaskCount: {payload.get('activeTaskCount')}",
             f"workerCount: {payload.get('workerCount')}",
             f"runtimeHealth: {payload.get('runtimeHealth')}",
@@ -228,6 +253,7 @@ def print_text(title: str, payload):
             f"mergeConflictCount: {payload.get('mergeConflictCount')}",
             f"contextRotWarnings: {len(payload.get('contextRotWarnings', []))}",
             f"driftChecklistFailures: {len(payload.get('driftChecklistFailures', []))}",
+            f"guardBlockers: {len(payload.get('guardBlockers', []))}",
         ]
         return "\n".join(lines)
     if title == "queue":

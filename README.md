@@ -77,7 +77,7 @@ This installs:
 
 - skills: `klein-harness`, `blueprint-architect`, `harness-log-search-cskill`
 - primary commands: `harness-submit`, `harness-tasks`, `harness-task`, `harness-control`
-- compatibility helpers: `harness-init`, `harness-bootstrap`, `harness-report`, `harness-kick`
+- compatibility shims also remain installed, but they are no longer the canonical UX
 
 Canonical 4-command surface:
 
@@ -88,8 +88,9 @@ harness-task /path/to/project T-001
 harness-control /path/to/project daemon status
 ```
 
-`harness-submit` auto-runs `harness-init` when the project has not been initialized yet.
-The runtime handles first setup, appended requirements, duplicate submissions, extra context, and inspection intent through the same write path.
+`harness-submit` auto-initializes the `.harness` scaffold when the project has not been initialized yet.
+That means initial setup for the control plane and request intake. Planning, routing, and execution still happen through the live runtime loop after submit.
+The same write path handles appended requirements, duplicate submissions, extra context, and inspection intent.
 
 Common submit shapes:
 
@@ -117,6 +118,7 @@ harness-tasks /path/to/project
 harness-task /path/to/project T-001
 harness-task /path/to/project T-001 logs --detail
 harness-control /path/to/project daemon restart
+harness-control /path/to/project project archive --reason "loop retired"
 ```
 
 ## Runtime Loop
@@ -172,6 +174,9 @@ Primary hot state:
 - `.harness/state/intake-summary.json`
 - `.harness/state/thread-state.json`
 - `.harness/state/change-summary.json`
+- `.harness/state/todo-summary.json`
+- `.harness/state/completion-gate.json`
+- `.harness/state/guard-state.json`
 - `.harness/state/lineage-index.json`
 - `.harness/state/log-index.json`
 - `.harness/state/research-index.json`
@@ -198,6 +203,14 @@ The control plane stays explicit in three layers:
 - runtime ledgers: mutable request/task/session truth
 - hot summaries: bounded JSON snapshots for operator and worker reads
 
+The guard loop stays repo-local and deterministic:
+
+- triggers only wake the runtime
+- the guard decides whether execution is safe
+- daily todo is derived from current facts, not manually maintained
+- completion gate is separate from blueprint source docs and separate from daily todo
+- only managed dirty state is checkpoint-eligible; unknown dirty worktrees block automation
+
 Progressive execution is thread-aware:
 
 - each submission gets classified and fused into a thread
@@ -219,7 +232,7 @@ Canonical public surface:
 harness-submit /path/to/project --goal "<GOAL>" [--kind <HINT>] [--thread-key <KEY>] [--idempotency-key <KEY>]
 harness-tasks /path/to/project [summary|queue|tasks|requests|workers|daemon|blockers|logs]
 harness-task /path/to/project <TASK_ID|REQUEST_ID> [detail|logs]
-harness-control /path/to/project <daemon|task|request> [args...]
+harness-control /path/to/project <daemon|task|request|project> [args...]
 ```
 
 Examples:
@@ -243,10 +256,6 @@ Advanced and compatibility helpers still exist, but they are no longer the prima
 .harness/bin/harness-runner tick .
 .harness/bin/harness-runner daemon . --interval 60
 .harness/bin/harness-verify-task <TASK_ID> . --write-back
-harness-init /path/to/project
-harness-bootstrap /path/to/project "<GOAL>" [STACK_HINT]
-harness-report /path/to/project
-harness-kick "<PROJECT_GOAL>" [STACK_HINT] [PROJECT_ROOT]
 ```
 
 Notes:
@@ -257,7 +266,7 @@ Notes:
 - workers should not merge or push directly; runtime serializes local integration through `integrationBranch`
 - git conflict is treated as a structured harness event, not as a late remote-push surprise
 - `harness-runner daemon` keeps ticking and refreshing hot state on a fixed interval
-- `harness-bootstrap` and `harness-kick` remain available as compatibility / expert helpers
+- older helper names remain available as compatibility / expert shims, but they are not the primary docs surface
 - use `--no-daemon` when you want a manual or fully operator-driven session
 - downstream workers should prefer hot state -> compact log md -> raw log
 - worker/backend health and runtime health are intentionally surfaced separately
@@ -292,15 +301,17 @@ Recommended triggers for `targeted` or `deep` research:
 - architecture options need explicit comparison
 - migration or rollout risk is material
 
-## Demo Flow
+## Operator Quickstart
 
-Minimal end-to-end demo:
+Minimal end-to-end operator flow:
 
 ```bash
 harness-submit /path/to/project --goal "根据当前仓库建立第一轮闭环" --context docs/prd.md
 harness-tasks /path/to/project
 harness-task /path/to/project T-001
 harness-control /path/to/project daemon status
+harness-control /path/to/project task T-001 checkpoint --reason "safe pause"
+harness-control /path/to/project project archive --reason "loop retired"
 ```
 
 Release smoke:
@@ -329,6 +340,10 @@ Primary docs:
 - `docs/single-entry-intake.md`
 - `docs/request-fusion-and-progressive-execution.md`
 - `docs/context-rot-and-drift-guards.md`
+- `docs/four-command-surface.md`
+- `docs/guard-loop.md`
+- `docs/daily-todo-and-completion-gate.md`
+- `docs/checkpoint-provenance.md`
 - `docs/runtime-request-spec.md`
 - `docs/klein-architecture.md`
 - `docs/log-search-architecture.md`
@@ -362,11 +377,15 @@ Read in this order:
 7. `docs/worktree-first-execution.md`
 8. `docs/local-merge-queue.md`
 9. `docs/merge-conflict-as-runtime-signal.md`
-10. `docs/log-search-architecture.md`
-11. `docs/blueprint-research-gate.md`
-12. `skills/klein-harness/references/schema-contracts.md`
-13. `skills/klein-harness/references/openclaw-dispatch.md`
-14. `skills/klein-harness/references/model-routing.md`
+10. `docs/four-command-surface.md`
+11. `docs/guard-loop.md`
+12. `docs/daily-todo-and-completion-gate.md`
+13. `docs/checkpoint-provenance.md`
+14. `docs/log-search-architecture.md`
+15. `docs/blueprint-research-gate.md`
+16. `skills/klein-harness/references/schema-contracts.md`
+17. `skills/klein-harness/references/openclaw-dispatch.md`
+18. `skills/klein-harness/references/model-routing.md`
 
 ## Trial and Feedback
 

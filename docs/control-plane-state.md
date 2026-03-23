@@ -26,6 +26,7 @@ These files drive request binding, task routing, claim state, session state, and
 ## 3. Hot summaries
 
 Hot summaries are bounded JSON projections for fast operator reads and compact worker context.
+They are the default machine-facing surface. Markdown projections are secondary.
 
 - `.harness/state/current.json`
 - `.harness/state/runtime.json`
@@ -38,6 +39,9 @@ Hot summaries are bounded JSON projections for fast operator reads and compact w
 - `.harness/state/task-summary.json`
 - `.harness/state/worker-summary.json`
 - `.harness/state/daemon-summary.json`
+- `.harness/state/todo-summary.json`
+- `.harness/state/completion-gate.json`
+- `.harness/state/guard-state.json`
 - `.harness/state/log-index.json`
 - `.harness/state/policy-summary.json`
 - `.harness/state/research-summary.json`
@@ -55,6 +59,17 @@ Machine-readable progress lives in `.harness/state/progress.json`.
 Human-readable progress lives in `.harness/progress.md`.
 
 `progress.md` is rendered from `state/progress.json`. Operator tools and prompts should prefer the JSON surface. Markdown is a human projection, not a machine dependency.
+
+## Guard-owned execution
+
+The runtime executes only when the guard can prove it is safe.
+
+- `todo-summary.json` is the derived execution panel
+- `completion-gate.json` is the completion decision surface
+- `guard-state.json` is the safety boundary
+
+Unknown dirty worktrees block automation.
+Managed dirty worktrees become checkpoint-eligible provenance instead of being silently absorbed.
 
 ## Health separation
 

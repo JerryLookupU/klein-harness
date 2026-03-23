@@ -6,6 +6,11 @@ usage() {
 usage: harness-tasks <ROOT> [summary|queue|tasks|requests|workers|daemon|blockers|logs|worktrees|merge-queue|integration|conflicts] [options...]
 
 Canonical task list / queue / summary surface for Klein-Harness.
+
+Examples:
+  harness-tasks /repo
+  harness-tasks /repo queue
+  harness-tasks /repo workers --format json
 EOF
 }
 

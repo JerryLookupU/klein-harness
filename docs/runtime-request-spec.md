@@ -19,16 +19,16 @@ Canonical public commands:
 - `harness-submit <ROOT> --goal <TEXT> [options...]`
 - `harness-tasks <ROOT> [summary|queue|tasks|requests|workers|daemon|blockers|logs]`
 - `harness-task <ROOT> <TASK_ID|REQUEST_ID> [detail|logs]`
-- `harness-control <ROOT> <daemon|task|request> [args...]`
+- `harness-control <ROOT> <daemon|task|request|project> [args...]`
 
-Compatibility helpers still exist:
+Compatibility shims still exist, but they are not the primary UX:
 
-- `harness-init <ROOT>`
-- `harness-bootstrap <ROOT> <GOAL> [STACK_HINT] [kick options...]`
-- `harness-report <ROOT> [--request-id <ID>] [--format text|json]`
-- `harness-kick <GOAL> [STACK_HINT] [ROOT]`
+- `harness-init`
+- `harness-bootstrap`
+- `harness-report`
+- `harness-kick`
 
-Project-local entry commands under `.harness/bin`:
+Project-local expert surfaces under `.harness/bin`:
 
 - `harness-submit`
 - `harness-tasks`
@@ -53,11 +53,24 @@ Repo-local Python control surface:
 `--kind` remains supported, but it is only a hint.
 The runtime decides deterministic-first classification, fusion, thread correlation, selective replan, and dispatch impact.
 
+Important boundary:
+
+- `harness-submit` can auto-initialize the `.harness` scaffold for an uninitialized repo
+- it does not pretend to be a one-shot full bootstrap wizard
+- planning / routing / execution still happen through the running control loop after submit
+
 The front door stays soft:
 
 - humans do not choose between append / check / replan / duplicate commands
 - cheap deterministic front-door triage distinguishes conversational, advisory, inspection, work-order, and duplicate/context interactions
 - heavy runtime classification and fusion still happen inside the control loop
+
+The guard stays hard:
+
+- todo is derived from facts, not hand-maintained
+- completion gate is separate from todo and separate from blueprint source docs
+- unknown dirty worktrees block non-interactive execution
+- only managed dirty worktrees can become checkpoint-eligible state
 
 ## Single-Entry Intake
 
@@ -123,9 +136,10 @@ Notes:
 The runtime remains live while new submissions arrive.
 Fresh bootstrap is not required for appended requirements.
 
-## Init
+## Scaffold Init
 
-`harness-init` creates the minimal operator/runtime skeleton without invoking a model.
+The compatibility helper `harness-init` creates the minimal operator/runtime skeleton without invoking a model.
+In the canonical flow, `harness-submit` can trigger the same scaffold creation automatically.
 
 Creates at least:
 
@@ -318,7 +332,7 @@ These follow-up requests:
 
 ## Report Surface
 
-`harness-report` reads hot state first and summarizes:
+The compatibility helper `harness-report` reads hot state first and summarizes:
 
 - request counts
 - selected / active request

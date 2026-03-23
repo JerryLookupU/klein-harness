@@ -160,7 +160,7 @@ Canonical public commands are now:
 - `harness-task`
 - `harness-control`
 
-Older helpers still remain available for compatibility and expert workflows:
+Older helpers still remain available as compatibility shims and expert workflows, but they are not the canonical surface:
 
 - `harness-init`
 - `harness-bootstrap`
