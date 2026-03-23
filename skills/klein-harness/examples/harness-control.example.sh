@@ -77,7 +77,10 @@ case "$DOMAIN" in
         ;;
       restart)
         if [[ ${#REST[@]} -gt 0 && "${REST[0]}" == "--from-stage" ]]; then
-          exec python3 "$PYTHON_CONTROL" --root "$ROOT" "${FORMAT_ARGS[@]}" task "$TASK_ID" restart "${REST[@]}"
+          if [[ ${#FORMAT_ARGS[@]} -gt 0 ]]; then
+            exec python3 "$PYTHON_CONTROL" --root "$ROOT" "${FORMAT_ARGS[@]}" task "$TASK_ID" restart "${REST[@]}"
+          fi
+          exec python3 "$PYTHON_CONTROL" --root "$ROOT" task "$TASK_ID" restart "${REST[@]}"
         fi
         if [[ ${#REST[@]} -gt 0 ]]; then
           exec "$RUNNER_SH" run "$TASK_ID" "$ROOT" "${REST[@]}"

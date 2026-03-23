@@ -417,6 +417,9 @@ def bound_requests_for_task(project_root: str, task_id: str) -> list[dict]:
 
 def prompt_lines(task: dict, route_decision: dict, project_root: str, execution_cwd: str):
     bound_requests = bound_requests_for_task(project_root, task.get("taskId"))
+    task_kind = (task.get("kind") or "").lower()
+    worker_mode = (task.get("workerMode") or "").lower()
+    control_plane_replan = task_kind in {"bootstrap", "replan"} or worker_mode == "orchestrator"
     lines = [
         "使用 klein-harness skill。",
         f"当前项目目录: {project_root}",
@@ -460,6 +463,18 @@ def prompt_lines(task: dict, route_decision: dict, project_root: str, execution_
         "```",
         "这个 block 只写 cross-worker relevant facts，不要泄露隐藏推理，不要粘贴大段文件内容。",
     ])
+    if control_plane_replan:
+        lines.extend([
+            "",
+            "当前 task 是 control-plane bootstrap/replan，读取面要收敛：",
+            "- 默认只读 prompt 中点名的 hot state 文件；除非需要单条证据，不要继续扩展到未点名路径，也不要猜测不存在的文件名。",
+            "- 如果需要 raw log，只允许定向读取当前 task 或直接前序 task 的单个 raw runner log，不要横向扫整个 requests/ 或 runner-logs/。",
+            "- 在完成 guard-state、todo-summary、request-summary、task-pool 四项取证后，立即收敛成三选一：写最小 replan/plan；调用已有 harness-control 能力；或明确 blocked 结论并停止。",
+            "- 如果请求目标已经能由现有 harness-control / runtime 命令安全完成，优先直接调用该命令并把结果回写控制面，不要先发明新任务。",
+            "- 对这类 workspace/runtime 清理请求，优先考虑 `harness-control <root> project tidy-worktrees`；它只允许清理 runtime-owned 产物，不得借此触碰业务源码。",
+            "- 如果 safeToExecute=false 或 unknown dirty 存在，只能做控制面闭环、证据归档和最小计划，不得扩展成业务代码改动。",
+            "- 一轮 bounded 取证后必须结束；如果信息仍不够，写明缺口并停在 blocked / replan 结论，不要继续漫游状态树。",
+        ])
     if task.get("roleHint") == "orchestrator" or task.get("workerMode") in {"audit", "orchestrator"}:
         lines.extend([
             "",
