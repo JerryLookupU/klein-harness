@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 import argparse
 import json
 import sys
@@ -7,11 +8,15 @@ from pathlib import Path
 from runtime_common import (
     SEVERE_ROUTE_FAILURES,
     TASK_ACTIVE_STATUSES,
+    context_rot_score,
     ensure_runtime_scaffold,
+    evaluate_task_drift_checklist,
     find_task,
     load_json,
+    load_policy_summary,
     load_optional_json,
     record_route_decision,
+    resolve_task_thread_key,
 )
 
 
@@ -97,7 +102,7 @@ def task_requires_explicit_workspace(task: dict):
     return task.get("kind") != "audit" and task.get("workerMode") != "audit"
 
 
-def route_task(task, tasks, session_registry, feedback_summary):
+def route_task(task, tasks, session_registry, feedback_summary, request_summary, thread_state, heartbeats, log_index, policy_summary):
     orchestration_session_id = session_registry.get("orchestrationSessionId")
     reasons = []
     needs_orchestrator = False
@@ -119,6 +124,17 @@ def route_task(task, tasks, session_registry, feedback_summary):
     claim = task.get("claim", {})
     active = active_tasks(tasks)
     completed_ids = completed_task_ids(tasks)
+    thread_key = resolve_task_thread_key(task)
+    thread_info = (thread_state.get("threads") or {}).get(thread_key, {})
+    latest_plan_epoch = thread_info.get("latestValidPlanEpoch") or thread_info.get("currentPlanEpoch")
+    compact_log = (log_index.get("logsByTaskId") or {}).get(task.get("taskId"))
+    drift_check = evaluate_task_drift_checklist(
+        task,
+        latest_plan_epoch=latest_plan_epoch,
+        request_summary=request_summary,
+        compact_log=compact_log,
+    )
+    rot = context_rot_score(task, request_summary, heartbeats, thread_state, compact_log, policy_summary)
 
     if role_hint == "worker" and status == "queued" and planning_stage != "execution-ready":
         claimable = False
@@ -164,6 +180,12 @@ def route_task(task, tasks, session_registry, feedback_summary):
         if not task.get("ownedPaths"):
             claimable = False
             reasons.append("worker task missing ownedPaths")
+    if task.get("checkpointRequired"):
+        claimable = False
+        reasons.append(task.get("checkpointReason") or "task requires checkpoint before replan")
+    if drift_check.get("status") == "fail":
+        claimable = False
+        reasons.extend(drift_check.get("failures", [])[:4])
 
     candidate_sessions = dedupe([
         claim.get("boundSessionId"),
@@ -182,7 +204,11 @@ def route_task(task, tasks, session_registry, feedback_summary):
     preferred_resume_session_id = None
     if task.get("resumeStrategy") == "resume":
         preferred = task.get("preferredResumeSessionId")
-        if contested_candidates:
+        if rot.get("status") in {"warning", "downgraded"}:
+            resume_strategy = "fresh"
+            preferred_resume_session_id = None
+            reasons.append("context rot exceeded safe resume threshold; prefer fresh session")
+        elif contested_candidates:
             claimable = False
             needs_orchestrator = True
             reasons.append(f"resume candidates already owned elsewhere: {contested_candidates}")
@@ -233,10 +259,16 @@ def route_task(task, tasks, session_registry, feedback_summary):
             "boundResumeStrategy": claim.get("boundResumeStrategy"),
             "boundFromTaskId": claim.get("boundFromTaskId"),
         },
+        "threadKey": thread_key,
+        "planEpoch": task.get("planEpoch"),
+        "latestPlanEpoch": latest_plan_epoch,
+        "contextRot": rot,
+        "preDispatchChecklist": drift_check,
         "worktreePath": task.get("worktreePath"),
         "branchName": task.get("branchName"),
         "ownedPaths": task.get("ownedPaths", []),
         "forbiddenPaths": task.get("forbiddenPaths", []),
+        "dispatchBackend": task.get("claim", {}).get("dispatchBackend") or policy_summary["dispatch"]["defaultBackend"],
         "targetSelector": task.get("dispatch", {}).get("targetSelector"),
         "diffBase": task.get("diffBase") or task.get("dispatch", {}).get("diffBase"),
         "commandProfile": task.get("dispatch", {}).get("commandProfile", {}),
@@ -255,9 +287,14 @@ def main():
     task_pool = load_json(files["harness"] / "task-pool.json")
     session_registry = load_json(files["session_registry_path"])
     feedback_summary = load_optional_json(files["feedback_summary_path"])
+    request_summary = load_optional_json(files["request_summary_path"], {})
+    thread_state = load_optional_json(files["thread_state_path"], {})
+    heartbeats = load_optional_json(files["runner_heartbeats_path"], {}).get("entries", {})
+    log_index = load_optional_json(files["log_index_path"], {})
+    policy_summary = load_policy_summary(files["policy_summary_path"], default_generator="harness-route-session")
 
     task = find_task(task_pool.get("tasks", []), args.task_id)
-    decision = route_task(task, task_pool.get("tasks", []), session_registry, feedback_summary)
+    decision = route_task(task, task_pool.get("tasks", []), session_registry, feedback_summary, request_summary, thread_state, heartbeats, log_index, policy_summary)
     if args.write_back:
         record_route_decision(root, args.task_id, decision, generator="harness-route-session")
     print(json.dumps(decision, ensure_ascii=False, indent=2))
