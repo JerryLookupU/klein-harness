@@ -21,6 +21,7 @@
 - 先让 `harness` 自己具备识别、拆解、执行、恢复、清理和收敛目标仓库任务的能力，再谈更高层自进化。
 - 目标仓库上的临时人工操作只允许用于取证、安装、重试、停止或验收；不允许把人工补救当成长期运行方案。
 - 每次真实运行失败后，都要先回答“这暴露的是哪个 `harness` 缺口”，再决定修哪里。
+- 对当前阶段的 `klein-harness` 本体，遵循“入无必要，勿增实体”：优先复用现有 command surface、账本和状态文件，不为局部问题额外发明新层。
 - 什么算待做：仍在当前 thread / plan epoch 内，未 terminal、未 supersede、未被 completion gate 关闭，且没有被 spec 明确判定为 inspection-only 的 task / request。
 - 什么情况下允许自动改代码：只有 harness guard 明确放行、任务已 dispatch、工作区满足 spec 要求、且当前路径属于 worker 而非 operator 时。
 - 自动改完后谁来提交/推送：先由 harness worker 在受管 lane 内完成修改和验证；提交/推送责任以项目 spec 为准，默认不由 operator 直接代做远端 push。
