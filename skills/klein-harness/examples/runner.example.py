@@ -469,6 +469,8 @@ def prompt_lines(task: dict, route_decision: dict, project_root: str, execution_
             "- 自动改完后谁来提交/推送：worker 负责本地修改与验证；是否提交/推送遵循 task 和 harness policy，默认不要替 operator 偷推远端。",
             "- 出错、超时、脏工作区怎么处理：先区分 prompt 问题还是 harness 系统问题；保留证据链；不要绕过 spec 偷跑；unknown dirty 默认阻断自动化。",
             "- 怎么知道真的完成：不能只看 exit code，必须同时看 verification、lineage/evidence、completion-gate、todo-summary 与 request/task 状态是否闭环。",
+            "- topic drift：如果发现范围漂移、蓝图失效、或当前方案需要重新拆解，先收集证据，再决定发起 audit / replan / blueprint / stop follow-up，不要把新主题直接混进当前 task。",
+            "- blueprint / replan 只在计划边界真的变化时触发；轻微实现细节或局部证据补充优先留在当前 task 内处理。",
             "- 如果观察到行为与这些要点不一致，先判定是提示词缺口还是 harness 系统缺口，再决定写结论还是继续修 .harness 控制面。",
             "- 除非 task 明确允许，不要直接修改业务源码；优先修 harness/spec/流程问题。",
         ])

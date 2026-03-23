@@ -18,4 +18,6 @@
 
 - 如果提示词没有遵循上述要点，先检查 prompt 渲染、task routing、worker prompt 分层是否缺字段。
 - 如果 prompt 已完整但行为仍偏离，再检查 harness runtime、guard、dispatch、finalize、worktree、日志链是否有系统性缺口。
+- 如果执行过程中发现 topic drift，不要直接把新话题混入当前 task；先判断应写 `audit`、`replan`、`blueprint` 还是 `stop` 类 follow-up，再按 thread / plan epoch 收敛。
+- `blueprint` / `replan` / `append_change` 只在确有范围漂移、依赖变化、或当前计划失效时触发；不要因为轻微实现细节就反复升级控制面。
 - 只有在 `codex-gpt` 额度不足时才回退到 `gpt-5.3-codex`；如果两者都不可用，停止执行并等待用户下一步操作。
