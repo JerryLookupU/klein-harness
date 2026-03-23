@@ -163,7 +163,18 @@ def main():
     progress["pendingCheckpointCount"] = guard_state.get("pendingCheckpointCount", 0)
     progress["unknownDirtyCount"] = guard_state.get("unknownDirtyCount", 0)
     progress["blockers"] = guard_state.get("blockers", [])
-    next_task_id = next((task_id for task_id in todo_summary.get("nextTaskIds", []) if task_id), None)
+    active_request = request_summary.get("activeRequest") or {}
+    active_binding = next(
+        (
+            binding for binding in request_summary.get("bindings", [])
+            if binding.get("requestId") == active_request.get("requestId")
+        ),
+        None,
+    )
+    next_task_id = (
+        (active_binding or {}).get("taskId")
+        or next((task_id for task_id in todo_summary.get("nextTaskIds", []) if task_id), None)
+    )
     next_todo = next((item for item in todo_summary.get("todoItems", []) if item.get("taskId") == next_task_id), None)
     next_actions = []
     if guard_state.get("unknownDirtyCount", 0):
@@ -174,14 +185,6 @@ def main():
             action += " as control-plane planning only; do not mutate business code"
         next_actions.append(action)
     progress["nextActions"] = next_actions
-    active_request = request_summary.get("activeRequest") or {}
-    active_binding = next(
-        (
-            binding for binding in request_summary.get("bindings", [])
-            if binding.get("requestId") == active_request.get("requestId")
-        ),
-        None,
-    )
 
     current_state = {
         "schemaVersion": "1.0",

@@ -29,6 +29,7 @@ from runtime_common import (
 RESET_FIELDS_BY_STAGE = {
     "queued": {
         "status": "queued",
+        "statusReason": None,
         "claim": {},
         "dispatchBackend": None,
         "dispatchSessionLabel": None,
@@ -55,9 +56,15 @@ RESET_FIELDS_BY_STAGE = {
         "checkpointRequired": False,
         "checkpointRequested": False,
         "checkpointReason": None,
+        "completedAt": None,
+        "outcome": None,
+        "verificationUpdatedAt": None,
+        "archivedAt": None,
+        "cleanupStatus": None,
     },
     "worktree_prepared": {
         "status": "worktree_prepared",
+        "statusReason": None,
         "claim": {},
         "dispatchBackend": None,
         "dispatchSessionLabel": None,
@@ -84,6 +91,11 @@ RESET_FIELDS_BY_STAGE = {
         "checkpointRequired": False,
         "checkpointRequested": False,
         "checkpointReason": None,
+        "completedAt": None,
+        "outcome": None,
+        "verificationUpdatedAt": None,
+        "archivedAt": None,
+        "cleanupStatus": None,
     },
     "merge_queued": {
         "status": "merge_queued",
@@ -92,6 +104,9 @@ RESET_FIELDS_BY_STAGE = {
         "mergedAt": None,
         "mergedCommit": None,
         "conflictPaths": None,
+        "completedAt": None,
+        "outcome": None,
+        "verificationUpdatedAt": None,
     },
 }
 
@@ -211,7 +226,7 @@ def classify_stale_heartbeats(tasks: list[dict], heartbeats: dict) -> list[str]:
     return stale
 
 
-def clear_task_runtime_residue(root: Path, files: dict, task: dict, *, reason: str) -> None:
+def clear_task_runtime_residue(root: Path, files: dict, task: dict, *, reason: str, reopen_terminal_requests: bool = False) -> None:
     state_dir = files["state_dir"]
     task_id = task.get("taskId")
     heartbeat_path = state_dir / "runner-heartbeats.json"
@@ -247,11 +262,16 @@ def clear_task_runtime_residue(root: Path, files: dict, task: dict, *, reason: s
         if binding.get("taskId") != task_id:
             continue
         request = requests_by_id.get(binding.get("requestId"))
-        if request and request.get("status") in REQUEST_TERMINAL_STATUSES:
+        if request and request.get("status") in REQUEST_TERMINAL_STATUSES and not reopen_terminal_requests:
             continue
         binding["status"] = "bound"
         binding["statusReason"] = reason
         binding["updatedAt"] = timestamp
+        lineage = binding.setdefault("lineage", {})
+        lineage["verificationStatus"] = None
+        lineage["verificationSummary"] = None
+        lineage["verificationResultPath"] = None
+        lineage["outcome"] = None
         binding.setdefault("history", []).append(
             {
                 "status": "bound",
@@ -261,6 +281,9 @@ def clear_task_runtime_residue(root: Path, files: dict, task: dict, *, reason: s
             }
         )
         if request:
+            request["verificationStatus"] = None
+            request["verificationResultPath"] = None
+            request["outcome"] = None
             update_request_status(index, request.get("requestId"), "bound", reason=reason)
             touched_requests.add(request.get("requestId"))
     for request_id in touched_requests:
@@ -411,7 +434,7 @@ def cmd_task(args) -> int:
         if stage not in RESET_FIELDS_BY_STAGE:
             raise ValueError(f"unsupported restart stage: {stage}")
         restart_reason = args.reason or f"operator restart from {stage}"
-        clear_task_runtime_residue(root, files, task, reason=restart_reason)
+        clear_task_runtime_residue(root, files, task, reason=restart_reason, reopen_terminal_requests=True)
         task.update({key: value for key, value in RESET_FIELDS_BY_STAGE[stage].items()})
         task["restartRequestedAt"] = now_iso()
         task["restartReason"] = restart_reason

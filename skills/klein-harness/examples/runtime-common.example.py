@@ -1779,6 +1779,9 @@ def build_progress_summary(
         (item for item in todo_summary.get("todoItems", []) if item.get("taskId") == next_task_id),
         None,
     )
+    current_task_summary = snapshot.get("currentTaskSummary")
+    if snapshot.get("currentTaskId") != next_task_id:
+        current_task_summary = None
     snapshot.update(
         {
             "schemaVersion": SCHEMA_VERSION,
@@ -1795,7 +1798,7 @@ def build_progress_summary(
             "currentRole": (next_todo or {}).get("roleHint") or snapshot.get("currentRole"),
             "currentTaskId": next_task_id,
             "currentTaskTitle": (next_todo or {}).get("title") or (active_binding or {}).get("taskTitle"),
-            "currentTaskSummary": snapshot.get("currentTaskSummary") if snapshot.get("currentTaskId") != next_task_id else snapshot.get("currentTaskSummary"),
+            "currentTaskSummary": current_task_summary,
             "planningStage": "execution-ready" if next_task_id else snapshot.get("planningStage"),
         }
     )
@@ -4774,6 +4777,7 @@ def sync_request_from_bindings(request: dict, bindings: list[dict]):
         request["lastBindingStatus"] = latest.get("status")
         request["statusReason"] = latest.get("statusReason")
         request["updatedAt"] = latest.get("updatedAt")
+        request["effectStatus"] = "closed" if latest.get("status") in REQUEST_TERMINAL_STATUSES else "open"
     return request
 
 
@@ -4781,6 +4785,7 @@ def update_request_status(index: dict, request_id: str, status: str, *, reason: 
     request = find_request(index.get("requests", []), request_id)
     request["status"] = status
     request["updatedAt"] = now_iso()
+    request["effectStatus"] = "closed" if status in REQUEST_TERMINAL_STATUSES else "open"
     if reason:
         request["statusReason"] = reason
     if extra:
@@ -4984,6 +4989,112 @@ def request_bindings_for_task(task_map: dict, task_id: str):
 
 def request_bindings_for_request(task_map: dict, request_id: str):
     return [binding for binding in task_map.get("bindings", []) if binding.get("requestId") == request_id]
+
+
+def reconcile_binding_task_states(index: dict, task_map: dict, task_pool: dict | None, *, generator: str) -> bool:
+    tasks_by_id = {
+        item.get("taskId"): item
+        for item in (task_pool or {}).get("tasks", [])
+        if item.get("taskId")
+    }
+    requests_by_id = {
+        item.get("requestId"): item
+        for item in index.get("requests", [])
+        if item.get("requestId")
+    }
+    timestamp = now_iso()
+    changed = False
+    touched_request_ids = set()
+    terminal_task_statuses = TASK_COMPLETED_STATUSES | TASK_SUPERSEDED_STATUSES | {"merged"}
+
+    for binding in task_map.get("bindings", []):
+        task_id = binding.get("taskId")
+        request_id = binding.get("requestId")
+        if not task_id or not request_id:
+            continue
+        task = tasks_by_id.get(task_id)
+        request = requests_by_id.get(request_id)
+        if not task or not request:
+            continue
+        binding_status = binding.get("status")
+        task_status = task.get("status")
+        lineage = binding.setdefault("lineage", {})
+
+        if task_status in TASK_SUPERSEDED_STATUSES and binding_status not in REQUEST_TERMINAL_STATUSES:
+            reason = task.get("supersededByRequestId")
+            detail = f"task superseded by {reason}" if reason else "task superseded by newer request"
+            binding["status"] = "cancelled"
+            binding["statusReason"] = detail
+            binding["updatedAt"] = timestamp
+            lineage["outcome"] = {"status": "cancelled"}
+            binding.setdefault("history", []).append(
+                {
+                    "status": "cancelled",
+                    "reason": detail,
+                    "timestamp": timestamp,
+                    "generator": generator,
+                }
+            )
+            touched_request_ids.add(request_id)
+            changed = True
+            continue
+
+        if request.get("kind") in {"stop", "status"}:
+            continue
+
+        if task_status not in terminal_task_statuses and binding_status in REQUEST_TERMINAL_STATUSES:
+            reopen_reason = task.get("restartReason") or "reopened because bound task is nonterminal"
+            binding["status"] = "bound"
+            binding["statusReason"] = reopen_reason
+            binding["updatedAt"] = timestamp
+            lineage["verificationStatus"] = None
+            lineage["verificationSummary"] = None
+            lineage["verificationResultPath"] = None
+            lineage["outcome"] = None
+            binding.setdefault("history", []).append(
+                {
+                    "status": "bound",
+                    "reason": reopen_reason,
+                    "timestamp": timestamp,
+                    "generator": generator,
+                }
+            )
+            touched_request_ids.add(request_id)
+            changed = True
+
+    for request_id in touched_request_ids:
+        request = requests_by_id.get(request_id)
+        if not request:
+            continue
+        bindings = request_bindings_for_request(task_map, request_id)
+        if not bindings:
+            continue
+        sync_request_from_bindings(request, bindings)
+        binding_statuses = {item.get("status") for item in bindings}
+        bound_tasks = [tasks_by_id.get(item.get("taskId")) for item in bindings if tasks_by_id.get(item.get("taskId"))]
+        has_open_task = any(task.get("status") not in terminal_task_statuses for task in bound_tasks)
+        if has_open_task and request.get("status") in REQUEST_TERMINAL_STATUSES:
+            request["status"] = "bound"
+            request["statusReason"] = "reopened because bound task is nonterminal"
+            request["updatedAt"] = timestamp
+            request["effectStatus"] = "open"
+            request["verificationStatus"] = None
+            request["verificationResultPath"] = None
+            request["outcome"] = None
+            changed = True
+        elif not has_open_task and binding_statuses and binding_statuses <= {"cancelled"} and request.get("status") not in REQUEST_TERMINAL_STATUSES:
+            request["status"] = "cancelled"
+            request["statusReason"] = "all bound tasks superseded or cancelled"
+            request["updatedAt"] = timestamp
+            request["effectStatus"] = "closed"
+            changed = True
+
+    if changed:
+        index["generatedAt"] = timestamp
+        index["generator"] = generator
+        task_map["generatedAt"] = timestamp
+        task_map["generator"] = generator
+    return changed
 
 
 def maybe_complete_request(root: Path, request_id: str, *, generator: str):
@@ -5851,6 +5962,14 @@ def reconcile_requests(root: Path, *, generator: str = "harness-reconcile"):
     index["generator"] = generator
     write_json(files["request_index_path"], index)
 
+    index = load_json(files["request_index_path"])
+    task_map = load_json(files["request_task_map_path"])
+    if reconcile_binding_task_states(index, task_map, task_pool, generator=generator):
+        write_json(files["request_index_path"], index)
+        write_json(files["request_task_map_path"], task_map)
+    index = load_json(files["request_index_path"])
+    task_map = load_json(files["request_task_map_path"])
+
     for request in index.get("requests", []):
         if request.get("status") in REQUEST_TERMINAL_STATUSES:
             continue
@@ -6174,13 +6293,38 @@ def build_request_summary(index: dict, task_map: dict, task_pool: dict | None = 
         if request.get("requestId")
     }
     counts = dict(Counter(request.get("status", "unknown") for request in requests))
-    active = [request for request in requests if request.get("status") not in REQUEST_TERMINAL_STATUSES]
     bindings = task_map.get("bindings", [])
     bindings_by_request: dict[str, list[dict]] = defaultdict(list)
     for binding in bindings:
         request_id = binding.get("requestId")
         if request_id:
             bindings_by_request[request_id].append(binding)
+
+    def request_task_statuses(request: dict) -> list[str]:
+        bound_task_ids = bounded_unique(
+            [
+                request.get("activeTaskId"),
+                *(request.get("boundTaskIds") or []),
+                *[item.get("taskId") for item in bindings_by_request.get(request.get("requestId"), [])],
+            ],
+            DEFAULT_POLICY_SUMMARY["threading"]["maxRecentThreadEvents"],
+        )
+        return [
+            (tasks_by_id.get(task_id) or {}).get("status")
+            for task_id in bound_task_ids
+            if (tasks_by_id.get(task_id) or {}).get("status")
+        ]
+
+    def request_is_effectively_active(request: dict) -> bool:
+        statuses = request_task_statuses(request)
+        if statuses:
+            return any(
+                status not in TASK_COMPLETED_STATUSES | TASK_SUPERSEDED_STATUSES | {"merged"}
+                for status in statuses
+            )
+        return not request_effect_terminal(request)
+
+    active = [request for request in requests if request_is_effectively_active(request)]
 
     def task_status_rank_for_request(request: dict) -> int:
         bound_task_ids = bounded_unique(
