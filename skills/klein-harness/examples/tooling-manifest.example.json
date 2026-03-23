@@ -10,6 +10,24 @@
       "updatedAt": "2026-03-21T21:25:00+08:00"
     },
     {
+      "name": "harness-tasks",
+      "target": ".harness/bin/harness-tasks",
+      "source": "examples/harness-tasks.example.sh",
+      "updatedAt": "2026-03-23T12:00:00+08:00"
+    },
+    {
+      "name": "harness-task",
+      "target": ".harness/bin/harness-task",
+      "source": "examples/harness-task.example.sh",
+      "updatedAt": "2026-03-23T12:00:00+08:00"
+    },
+    {
+      "name": "harness-control",
+      "target": ".harness/bin/harness-control",
+      "source": "examples/harness-control.example.sh",
+      "updatedAt": "2026-03-23T12:00:00+08:00"
+    },
+    {
       "name": "harness-dashboard",
       "target": ".harness/bin/harness-dashboard",
       "source": "examples/harness-dashboard.example.sh",
@@ -20,6 +38,12 @@
       "target": ".harness/scripts/query.py",
       "source": "examples/query-harness.example.py",
       "updatedAt": "2026-03-21T21:25:00+08:00"
+    },
+    {
+      "name": "control.py",
+      "target": ".harness/scripts/control.py",
+      "source": "examples/control.example.py",
+      "updatedAt": "2026-03-23T12:00:00+08:00"
     },
     {
       "name": "refresh-state.py",

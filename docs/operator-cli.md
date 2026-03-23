@@ -1,6 +1,15 @@
 # Operator CLI
 
-`harness-ops` is the project-local machine-first operator facade.
+`harness-ops` is the project-local machine-first operator facade behind the public 4-command UX.
+
+Canonical public wrappers:
+
+- `harness-submit`
+- `harness-tasks`
+- `harness-task`
+- `harness-control`
+
+`harness-ops` remains the expert/project-local surface when you want the raw operator subcommands directly.
 
 Path:
 

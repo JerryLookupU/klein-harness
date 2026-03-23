@@ -153,11 +153,17 @@ Hot state can summarize both, but the source ledgers remain separate.
 
 ## Compatibility
 
-The CLI surface stays stable:
+Canonical public commands are now:
+
+- `harness-submit`
+- `harness-tasks`
+- `harness-task`
+- `harness-control`
+
+Older helpers still remain available for compatibility and expert workflows:
 
 - `harness-init`
 - `harness-bootstrap`
-- `harness-submit`
 - `harness-report`
 - `harness-kick`
 

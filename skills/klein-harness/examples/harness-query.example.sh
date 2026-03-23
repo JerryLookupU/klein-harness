@@ -2,7 +2,7 @@
 set -euo pipefail
 
 if [ "$#" -lt 2 ]; then
-  echo "usage: $0 <overview|progress|current|blueprint|task|feedback|requests|workers|daemon|blockers|logs|log> <ROOT> [args...] [--text]" >&2
+  echo "usage: $0 <overview|progress|current|blueprint|task|feedback|requests|workers|daemon|worktrees|merge-queue|integration|conflicts|blockers|logs|log> <ROOT> [args...] [--text]" >&2
   exit 1
 fi
 
@@ -39,7 +39,15 @@ for arg in "${ARGS[@]}"; do
 done
 
 if [ -n "$POSITIONAL_TASK" ]; then
-  PASSTHRU=(--task-id "$POSITIONAL_TASK" "${PASSTHRU[@]}")
+  if [ "${#PASSTHRU[@]}" -gt 0 ]; then
+    PASSTHRU=(--task-id "$POSITIONAL_TASK" "${PASSTHRU[@]}")
+  else
+    PASSTHRU=(--task-id "$POSITIONAL_TASK")
+  fi
 fi
 
-python3 "$PYTHON_QUERY" --root "$ROOT" --view "$VIEW" --format "$FORMAT" "${PASSTHRU[@]}"
+if [ "${#PASSTHRU[@]}" -gt 0 ]; then
+  python3 "$PYTHON_QUERY" --root "$ROOT" --view "$VIEW" --format "$FORMAT" "${PASSTHRU[@]}"
+else
+  python3 "$PYTHON_QUERY" --root "$ROOT" --view "$VIEW" --format "$FORMAT"
+fi

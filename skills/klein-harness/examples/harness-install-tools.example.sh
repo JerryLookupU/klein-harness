@@ -22,11 +22,15 @@ install_file() {
 }
 
 install_file "harness-query.example.sh" "$BIN_DIR/harness-query"
+install_file "harness-tasks.example.sh" "$BIN_DIR/harness-tasks"
+install_file "harness-task.example.sh" "$BIN_DIR/harness-task"
+install_file "harness-control.example.sh" "$BIN_DIR/harness-control"
 install_file "harness-dashboard.example.sh" "$BIN_DIR/harness-dashboard"
 install_file "query-harness.example.py" "$SCRIPTS_DIR/query.py"
+install_file "control.example.py" "$SCRIPTS_DIR/control.py"
 install_file "refresh-state.example.py" "$SCRIPTS_DIR/refresh-state.py"
 
-chmod +x "$BIN_DIR/harness-query" "$BIN_DIR/harness-dashboard"
+chmod +x "$BIN_DIR/harness-query" "$BIN_DIR/harness-tasks" "$BIN_DIR/harness-task" "$BIN_DIR/harness-control" "$BIN_DIR/harness-dashboard"
 
 cat > "$MANIFEST" <<'JSON'
 {
@@ -40,6 +44,21 @@ cat > "$MANIFEST" <<'JSON'
       "source": "examples/harness-query.example.sh"
     },
     {
+      "name": "harness-tasks",
+      "target": ".harness/bin/harness-tasks",
+      "source": "examples/harness-tasks.example.sh"
+    },
+    {
+      "name": "harness-task",
+      "target": ".harness/bin/harness-task",
+      "source": "examples/harness-task.example.sh"
+    },
+    {
+      "name": "harness-control",
+      "target": ".harness/bin/harness-control",
+      "source": "examples/harness-control.example.sh"
+    },
+    {
       "name": "harness-dashboard",
       "target": ".harness/bin/harness-dashboard",
       "source": "examples/harness-dashboard.example.sh"
@@ -48,6 +67,11 @@ cat > "$MANIFEST" <<'JSON'
       "name": "query.py",
       "target": ".harness/scripts/query.py",
       "source": "examples/query-harness.example.py"
+    },
+    {
+      "name": "control.py",
+      "target": ".harness/scripts/control.py",
+      "source": "examples/control.example.py"
     },
     {
       "name": "refresh-state.py",
@@ -69,3 +93,8 @@ open(path, "a").write("\n")
 PY
 
 echo "installed harness tools into $HARNESS_DIR"
+echo "primary local commands:"
+echo "  .harness/bin/harness-submit"
+echo "  .harness/bin/harness-tasks"
+echo "  .harness/bin/harness-task"
+echo "  .harness/bin/harness-control"

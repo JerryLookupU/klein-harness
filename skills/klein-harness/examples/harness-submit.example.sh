@@ -2,7 +2,13 @@
 set -euo pipefail
 
 if [ "$#" -lt 1 ]; then
-  echo "usage: $0 <ROOT> --kind <KIND> --goal <TEXT> [options...]" >&2
+  cat <<'EOF' >&2
+usage: harness-submit <ROOT> --goal <TEXT> [options...]
+
+Single public write path for initial work, appended work, duplicate/context submissions, and inspection intents.
+`--kind` is optional and treated as a hint.
+`--context` may be repeated.
+EOF
   exit 1
 fi
 

@@ -14,16 +14,26 @@ Only the project runtime decides binding, routing, dispatch, recovery, verificat
 
 ## Entry Model
 
-Global entry commands:
+Canonical public commands:
+
+- `harness-submit <ROOT> --goal <TEXT> [options...]`
+- `harness-tasks <ROOT> [summary|queue|tasks|requests|workers|daemon|blockers|logs]`
+- `harness-task <ROOT> <TASK_ID|REQUEST_ID> [detail|logs]`
+- `harness-control <ROOT> <daemon|task|request> [args...]`
+
+Compatibility helpers still exist:
 
 - `harness-init <ROOT>`
 - `harness-bootstrap <ROOT> <GOAL> [STACK_HINT] [kick options...]`
-- `harness-submit <ROOT> --goal <TEXT> [options...]`
 - `harness-report <ROOT> [--request-id <ID>] [--format text|json]`
+- `harness-kick <GOAL> [STACK_HINT] [ROOT]`
 
 Project-local entry commands under `.harness/bin`:
 
 - `harness-submit`
+- `harness-tasks`
+- `harness-task`
+- `harness-control`
 - `harness-report`
 - `harness-runner`
 - `harness-status`
@@ -42,6 +52,12 @@ Repo-local Python control surface:
 `harness-submit` stays the single human-originating write path.
 `--kind` remains supported, but it is only a hint.
 The runtime decides deterministic-first classification, fusion, thread correlation, selective replan, and dispatch impact.
+
+The front door stays soft:
+
+- humans do not choose between append / check / replan / duplicate commands
+- cheap deterministic front-door triage distinguishes conversational, advisory, inspection, work-order, and duplicate/context interactions
+- heavy runtime classification and fusion still happen inside the control loop
 
 ## Single-Entry Intake
 

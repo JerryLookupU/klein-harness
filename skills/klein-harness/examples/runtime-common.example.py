@@ -28,6 +28,13 @@ INTENT_CLASSES = {
     "compound_split",
     "ambiguous_needs_orchestrator",
 }
+FRONT_DOOR_CLASSES = {
+    "conversational_help",
+    "advisory_read_only",
+    "inspection",
+    "work_order",
+    "duplicate_or_context",
+}
 FUSION_DECISIONS = {
     "accepted_new_thread",
     "accepted_existing_thread",
@@ -2373,6 +2380,22 @@ def classify_goal_clause(goal: str, *, has_context: bool) -> str:
     return "fresh_work"
 
 
+def classify_front_door_semantics(request: dict, normalized_intent: str) -> str:
+    text = (request.get("goal") or "").strip().lower()
+    kind_hint = (request.get("kind") or "").lower()
+    help_keywords = {"help", "usage", "how", "what", "why", "说明", "怎么", "如何", "是什么", "为什么"}
+    advisory_keywords = {"compare", "difference", "overview", "summarize", "summary", "建议", "比较", "概览", "总结"}
+    if normalized_intent in {"duplicate_or_noop", "context_enrichment"}:
+        return "duplicate_or_context"
+    if normalized_intent == "inspection":
+        if any(keyword in text for keyword in help_keywords | advisory_keywords) or kind_hint in {"status", "analysis", "research"}:
+            return "advisory_read_only"
+        return "inspection"
+    if normalized_intent == "ambiguous_needs_orchestrator" and any(keyword in text for keyword in help_keywords):
+        return "conversational_help"
+    return "work_order"
+
+
 def existing_open_requests(index: dict) -> list[dict]:
     return [request for request in index.get("requests", []) if not request_effect_terminal(request)]
 
@@ -2575,8 +2598,12 @@ def classify_submission(request: dict, *, index: dict, task_map: dict, thread_st
         if correlation_reason:
             reason_parts.append(correlation_reason)
         classification_reason = "; ".join(reason_parts)
+    front_door_class = classify_front_door_semantics(request, normalized_intent)
+    if front_door_class not in FRONT_DOOR_CLASSES:
+        front_door_class = "work_order"
     return {
         "normalizedIntentClass": normalized_intent,
+        "frontDoorClass": front_door_class,
         "fusionDecision": fusion_decision,
         "threadKey": request.get("threadKey") or thread_key,
         "targetThreadKey": thread_key,
@@ -5147,6 +5174,7 @@ def build_request_summary(index: dict, task_map: dict, task_pool: dict | None = 
             [
                 {
                     "requestId": request.get("requestId"),
+                    "frontDoorClass": request.get("frontDoorClass"),
                     "normalizedIntentClass": request.get("normalizedIntentClass"),
                     "fusionDecision": request.get("fusionDecision"),
                     "threadKey": thread_key_from_request(request),
@@ -5168,6 +5196,7 @@ def build_request_summary(index: dict, task_map: dict, task_pool: dict | None = 
         "contextMergeCount": sum(1 for request in requests if request.get("fusionDecision") == "merged_as_context"),
         "inspectionOverlayCount": sum(1 for request in requests if request.get("fusionDecision") == "inspection_overlay"),
         "appendChangeCount": sum(1 for request in requests if request.get("normalizedIntentClass") == "append_change"),
+        "byFrontDoorClass": dict(Counter(request.get("frontDoorClass", "unknown") for request in requests)),
     }
 
 
@@ -5179,6 +5208,7 @@ def build_intake_summary(index: dict, thread_state: dict | None = None, *, gener
         "generator": generator,
         "generatedAt": now_iso(),
         "submissionCount": len(requests),
+        "byFrontDoorClass": dict(Counter(request.get("frontDoorClass", "unknown") for request in requests)),
         "byIntentClass": dict(Counter(request.get("normalizedIntentClass", "unknown") for request in requests)),
         "byFusionDecision": dict(Counter(request.get("fusionDecision", "unknown") for request in requests)),
         "duplicateCount": sum(1 for request in requests if request.get("fusionDecision") == "duplicate_of_existing"),
@@ -5192,6 +5222,7 @@ def build_intake_summary(index: dict, thread_state: dict | None = None, *, gener
                     "requestId": request.get("requestId"),
                     "goal": request.get("goal"),
                     "status": request.get("status"),
+                    "frontDoorClass": request.get("frontDoorClass"),
                     "normalizedIntentClass": request.get("normalizedIntentClass"),
                     "fusionDecision": request.get("fusionDecision"),
                     "threadKey": thread_key_from_request(request),

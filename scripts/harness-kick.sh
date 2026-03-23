@@ -5,6 +5,10 @@ usage() {
   cat <<'EOF' >&2
 usage: harness-kick [options] <PROJECT_GOAL> [STACK_HINT] [PROJECT_ROOT]
 
+Compatibility / expert helper for explicit bootstrap kickoff.
+The canonical public write path is:
+  harness-submit <ROOT> --goal "<GOAL>"
+
 options:
   --manual, --no-bootstrap  only install .harness and write bootstrap prompt
   --auto-bootstrap          force running `codex exec` bootstrap after install

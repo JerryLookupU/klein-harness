@@ -3,9 +3,17 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF' >&2
-usage: harness-submit <ROOT> --kind <KIND> --goal <TEXT> [options...]
+usage: harness-submit <ROOT> --goal <TEXT> [options...]
+
+Single public write path for:
+  - first setup + first requirement
+  - appended requirement
+  - extra context / duplicate submission
+  - inspection / check intent
 
 If the project has not been initialized yet, this command auto-runs harness-init first.
+`--kind` remains supported as an optional hint.
+`--context` may be repeated and may point to PRD files, directories, logs, or mixed evidence.
 EOF
 }
 

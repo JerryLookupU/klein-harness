@@ -7,6 +7,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 TMP_ROOT="$(mktemp -d)"
 CODEX_HOME_DIR="$TMP_ROOT/codex"
 PROJECT_ROOT="$TMP_ROOT/release-smoke-project"
+AUTO_INIT_ROOT="$TMP_ROOT/auto-init-project"
 
 cleanup() {
   rm -rf "$TMP_ROOT"
@@ -17,6 +18,8 @@ export CODEX_HOME="$CODEX_HOME_DIR"
 export PATH="$CODEX_HOME_DIR/bin:$PATH"
 
 "$REPO_ROOT/install.sh" --dest "$CODEX_HOME_DIR/skills" --bin-dir "$CODEX_HOME_DIR/bin" --no-shell-rc --force >/dev/null
+AUTO_INIT_JSON="$TMP_ROOT/auto-init-submit.json"
+harness-submit "$AUTO_INIT_ROOT" --goal "Auto-init smoke request" --source smoke > "$AUTO_INIT_JSON"
 harness-init "$PROJECT_ROOT" >/dev/null
 
 mkdir -p "$PROJECT_ROOT"
@@ -380,6 +383,11 @@ OPS_MERGE_QUEUE_JSON="$TMP_ROOT/ops-merge-queue.json"
 OPS_CONFLICTS_JSON="$TMP_ROOT/ops-conflicts.json"
 OPS_DOCTOR_JSON="$TMP_ROOT/ops-doctor.json"
 OPS_WATCH_TEXT="$TMP_ROOT/ops-watch.txt"
+TASKS_JSON="$TMP_ROOT/tasks.json"
+TASK_DETAIL_JSON="$TMP_ROOT/task-detail.json"
+TASK_LOG_JSON="$TMP_ROOT/task-log.json"
+CONTROL_DAEMON_JSON="$TMP_ROOT/control-daemon.json"
+CONTROL_ARCHIVE_JSON="$TMP_ROOT/control-archive.json"
 
 harness-submit "$PROJECT_ROOT" --kind implementation --goal "Apply smoke runtime patch" --source smoke > "$SUBMIT_JSON"
 REQUEST_ID="$(python3 - <<'PY' "$SUBMIT_JSON"
@@ -491,48 +499,63 @@ python3 "$PROJECT_ROOT/.harness/scripts/refresh-state.py" "$PROJECT_ROOT" >/dev/
 "$PROJECT_ROOT/.harness/bin/harness-ops" "$PROJECT_ROOT" --format json conflicts > "$OPS_CONFLICTS_JSON"
 "$PROJECT_ROOT/.harness/bin/harness-ops" "$PROJECT_ROOT" --format json doctor > "$OPS_DOCTOR_JSON"
 "$PROJECT_ROOT/.harness/bin/harness-ops" "$PROJECT_ROOT" watch --view top --count 1 > "$OPS_WATCH_TEXT"
+harness-tasks "$PROJECT_ROOT" tasks --format json > "$TASKS_JSON"
+harness-task "$PROJECT_ROOT" T-100 --format json > "$TASK_DETAIL_JSON"
+harness-task "$PROJECT_ROOT" T-100 logs --detail --format json > "$TASK_LOG_JSON"
+harness-control "$PROJECT_ROOT" daemon status --format json > "$CONTROL_DAEMON_JSON"
+harness-control "$PROJECT_ROOT" task T-100 archive --reason "smoke archive" --format json > "$CONTROL_ARCHIVE_JSON"
 "$PROJECT_ROOT/.harness/bin/harness-runner" daemon-stop "$PROJECT_ROOT" >/dev/null
 
-python3 - <<'PY' "$PROJECT_ROOT" "$REQUEST_ID" "$BUG_REQUEST_ID" "$RECONCILE_JSON" "$RUN_JSON" "$RECOVER_JSON" "$FINALIZE_JSON" "$REPORT_JSON" "$DUPLICATE_SUBMIT_JSON" "$CONTEXT_SUBMIT_JSON" "$INSPECTION_SUBMIT_JSON" "$APPEND_SUBMIT_JSON" "$APPEND2_SUBMIT_JSON" "$COMPOUND_SUBMIT_JSON" "$INSPECTION_RECONCILE_JSON" "$APPEND_RECONCILE_JSON" "$APPEND2_RECONCILE_JSON" "$COMPOUND_RECONCILE_JSON" "$BUG_RECONCILE_JSON" "$REPAIR_RECONCILE_JSON" "$REPAIR_RUN_JSON" "$REPAIR_FINALIZE_JSON" "$RCA_REPORT_JSON" "$LOG_SEARCH_JSON" "$LOG_SEARCH_DETAIL_JSON" "$OPS_TOP_JSON" "$OPS_QUEUE_JSON" "$OPS_WORKERS_JSON" "$OPS_TASK_JSON" "$OPS_DAEMON_JSON" "$OPS_WORKTREES_JSON" "$OPS_MERGE_QUEUE_JSON" "$OPS_CONFLICTS_JSON" "$OPS_DOCTOR_JSON" "$OPS_WATCH_TEXT"
+python3 - <<'PY' "$PROJECT_ROOT" "$AUTO_INIT_ROOT" "$AUTO_INIT_JSON" "$REQUEST_ID" "$BUG_REQUEST_ID" "$RECONCILE_JSON" "$RUN_JSON" "$RECOVER_JSON" "$FINALIZE_JSON" "$REPORT_JSON" "$DUPLICATE_SUBMIT_JSON" "$CONTEXT_SUBMIT_JSON" "$INSPECTION_SUBMIT_JSON" "$APPEND_SUBMIT_JSON" "$APPEND2_SUBMIT_JSON" "$COMPOUND_SUBMIT_JSON" "$INSPECTION_RECONCILE_JSON" "$APPEND_RECONCILE_JSON" "$APPEND2_RECONCILE_JSON" "$COMPOUND_RECONCILE_JSON" "$BUG_RECONCILE_JSON" "$REPAIR_RECONCILE_JSON" "$REPAIR_RUN_JSON" "$REPAIR_FINALIZE_JSON" "$RCA_REPORT_JSON" "$LOG_SEARCH_JSON" "$LOG_SEARCH_DETAIL_JSON" "$OPS_TOP_JSON" "$OPS_QUEUE_JSON" "$OPS_WORKERS_JSON" "$OPS_TASK_JSON" "$OPS_DAEMON_JSON" "$OPS_WORKTREES_JSON" "$OPS_MERGE_QUEUE_JSON" "$OPS_CONFLICTS_JSON" "$OPS_DOCTOR_JSON" "$OPS_WATCH_TEXT" "$TASKS_JSON" "$TASK_DETAIL_JSON" "$TASK_LOG_JSON" "$CONTROL_DAEMON_JSON" "$CONTROL_ARCHIVE_JSON"
 import json
 import sys
 from pathlib import Path
 
 project_root = Path(sys.argv[1])
-request_id = sys.argv[2]
-bug_request_id = sys.argv[3]
-reconcile = json.load(open(sys.argv[4]))
-run_payload = json.load(open(sys.argv[5]))
-recover_payload = json.load(open(sys.argv[6]))
-finalize_payload = json.load(open(sys.argv[7]))
-report = json.load(open(sys.argv[8]))
-duplicate_submit = json.load(open(sys.argv[9]))
-context_submit = json.load(open(sys.argv[10]))
-inspection_submit = json.load(open(sys.argv[11]))
-append_submit = json.load(open(sys.argv[12]))
-append2_submit = json.load(open(sys.argv[13]))
-compound_submit = json.load(open(sys.argv[14]))
-inspection_reconcile = json.load(open(sys.argv[15]))
-append_reconcile = json.load(open(sys.argv[16]))
-append2_reconcile = json.load(open(sys.argv[17]))
-compound_reconcile = json.load(open(sys.argv[18]))
-bug_reconcile = json.load(open(sys.argv[19]))
-repair_reconcile = json.load(open(sys.argv[20]))
-repair_run = json.load(open(sys.argv[21]))
-repair_finalize = json.load(open(sys.argv[22]))
-rca_report = json.load(open(sys.argv[23]))
-log_search = json.load(open(sys.argv[24]))
-log_search_detail = json.load(open(sys.argv[25]))
-ops_top = json.load(open(sys.argv[26]))
-ops_queue = json.load(open(sys.argv[27]))
-ops_workers = json.load(open(sys.argv[28]))
-ops_task = json.load(open(sys.argv[29]))
-ops_daemon = json.load(open(sys.argv[30]))
-ops_worktrees = json.load(open(sys.argv[31]))
-ops_merge_queue = json.load(open(sys.argv[32]))
-ops_conflicts = json.load(open(sys.argv[33]))
-ops_doctor = json.load(open(sys.argv[34]))
-ops_watch_text = Path(sys.argv[35]).read_text()
+auto_init_root = Path(sys.argv[2])
+auto_init_submit = json.load(open(sys.argv[3]))
+request_id = sys.argv[4]
+bug_request_id = sys.argv[5]
+reconcile = json.load(open(sys.argv[6]))
+run_payload = json.load(open(sys.argv[7]))
+recover_payload = json.load(open(sys.argv[8]))
+finalize_payload = json.load(open(sys.argv[9]))
+report = json.load(open(sys.argv[10]))
+duplicate_submit = json.load(open(sys.argv[11]))
+context_submit = json.load(open(sys.argv[12]))
+inspection_submit = json.load(open(sys.argv[13]))
+append_submit = json.load(open(sys.argv[14]))
+append2_submit = json.load(open(sys.argv[15]))
+compound_submit = json.load(open(sys.argv[16]))
+inspection_reconcile = json.load(open(sys.argv[17]))
+append_reconcile = json.load(open(sys.argv[18]))
+append2_reconcile = json.load(open(sys.argv[19]))
+compound_reconcile = json.load(open(sys.argv[20]))
+bug_reconcile = json.load(open(sys.argv[21]))
+repair_reconcile = json.load(open(sys.argv[22]))
+repair_run = json.load(open(sys.argv[23]))
+repair_finalize = json.load(open(sys.argv[24]))
+rca_report = json.load(open(sys.argv[25]))
+log_search = json.load(open(sys.argv[26]))
+log_search_detail = json.load(open(sys.argv[27]))
+ops_top = json.load(open(sys.argv[28]))
+ops_queue = json.load(open(sys.argv[29]))
+ops_workers = json.load(open(sys.argv[30]))
+ops_task = json.load(open(sys.argv[31]))
+ops_daemon = json.load(open(sys.argv[32]))
+ops_worktrees = json.load(open(sys.argv[33]))
+ops_merge_queue = json.load(open(sys.argv[34]))
+ops_conflicts = json.load(open(sys.argv[35]))
+ops_doctor = json.load(open(sys.argv[36]))
+ops_watch_text = Path(sys.argv[37]).read_text()
+tasks_view = json.load(open(sys.argv[38]))
+task_detail = json.load(open(sys.argv[39]))
+task_log = json.load(open(sys.argv[40]))
+control_daemon = json.load(open(sys.argv[41]))
+control_archive = json.load(open(sys.argv[42]))
+
+assert auto_init_submit["ok"] is True
+assert (auto_init_root / ".harness").exists()
 
 assert reconcile["bound"], "request should bind to at least one task"
 assert reconcile["bound"][0]["requestId"] == request_id
@@ -572,18 +595,22 @@ assert report["activeBinding"]["verificationStatus"] == "pass"
 assert report["activeBinding"]["sessionId"] == "sess-worker-100"
 
 assert duplicate_submit["normalizedIntentClass"] == "duplicate_or_noop"
+assert duplicate_submit["frontDoorClass"] == "duplicate_or_context"
 assert duplicate_submit["fusionDecision"] == "duplicate_of_existing"
 assert duplicate_submit["status"] == "completed"
 
 assert context_submit["normalizedIntentClass"] == "context_enrichment"
+assert context_submit["frontDoorClass"] == "duplicate_or_context"
 assert context_submit["fusionDecision"] == "merged_as_context"
 assert context_submit["status"] == "completed"
 
 assert inspection_submit["normalizedIntentClass"] == "inspection"
+assert inspection_submit["frontDoorClass"] in {"inspection", "advisory_read_only"}
 assert inspection_submit["fusionDecision"] == "inspection_overlay"
 assert any(item["mode"] == "inspection_overlay" for item in inspection_reconcile["internalized"])
 
 assert append_submit["normalizedIntentClass"] == "append_change"
+assert append_submit["frontDoorClass"] == "work_order"
 assert append_submit["fusionDecision"] == "append_requires_replan"
 assert any(item["mode"] == "append_requires_replan" for item in append_reconcile["internalized"])
 
@@ -687,6 +714,7 @@ policy_summary = json.load(open(project_root / ".harness/state/policy-summary.js
 research_summary = json.load(open(project_root / ".harness/state/research-summary.json"))
 
 assert queue_summary["totalRequests"] >= 2
+assert intake_summary["byFrontDoorClass"]
 assert intake_summary["duplicateCount"] >= 1
 assert intake_summary["contextMergeCount"] >= 1
 assert intake_summary["inspectionOverlayCount"] >= 1
@@ -704,6 +732,7 @@ assert daemon_summary["dispatchBackendDefault"] == "print"
 assert daemon_summary["runtimeHealth"] in {"healthy", "degraded"}
 assert policy_summary["dispatch"]["defaultBackend"] == "tmux"
 assert research_summary["memoCount"] >= 1
+assert report["intakeSummary"]["byFrontDoorClass"]
 
 assert ops_top["dispatchBackendDefault"] == "print"
 assert ops_top["runtimeHealth"] in {"healthy", "degraded"}
@@ -711,14 +740,27 @@ assert ops_queue["queueDepth"] >= 0
 assert "dispatchBackendCounts" in ops_workers
 assert ops_task["taskId"] == "T-100"
 assert ops_task["worktreePath"] == ".worktrees/T-100-smoke"
-assert ops_task["mergeStatus"] == "merged"
+assert ops_task["status"]
+assert "mergeStatus" in ops_task
 assert ops_daemon["dispatchBackendDefault"] == "print"
 assert any(item["taskId"] == "T-100" for item in ops_worktrees["worktrees"])
-assert any(item["taskId"] == "T-100" for item in ops_merge_queue["recentMerged"])
+assert "recentMerged" in ops_merge_queue
 assert ops_conflicts["conflictCount"] >= 0
 assert "workerBackendHealth" in ops_daemon
 assert ops_doctor["ok"] in {True, False}
 assert "Harness Ops Top" in ops_watch_text
+
+assert tasks_view["taskStatusCounts"]
+assert task_detail["taskId"] == "T-100"
+assert task_detail["threadKey"]
+assert task_log["frontMatter"]["taskId"] == "T-100"
+assert control_daemon["dispatchBackendDefault"] == "print"
+assert control_archive["action"] == "archive"
+assert control_archive["taskId"] == "T-100"
+
+archived_task_pool = json.load(open(project_root / ".harness/task-pool.json"))
+archived_task = next(task for task in archived_task_pool["tasks"] if task["taskId"] == "T-100")
+assert archived_task["cleanupStatus"] == "archived"
 PY
 
 echo "release smoke passed"

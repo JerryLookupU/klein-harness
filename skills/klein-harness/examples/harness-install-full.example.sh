@@ -47,6 +47,9 @@ install_file() {
 
 install_file "harness-query.example.sh" "$BIN_DIR/harness-query"
 install_file "harness-ops.example.sh" "$BIN_DIR/harness-ops"
+install_file "harness-tasks.example.sh" "$BIN_DIR/harness-tasks"
+install_file "harness-task.example.sh" "$BIN_DIR/harness-task"
+install_file "harness-control.example.sh" "$BIN_DIR/harness-control"
 install_file "harness-log-search.example.sh" "$BIN_DIR/harness-log-search"
 install_file "harness-dashboard.example.sh" "$BIN_DIR/harness-dashboard"
 install_file "harness-status.example.sh" "$BIN_DIR/harness-status"
@@ -62,6 +65,7 @@ install_file "harness-report.example.sh" "$BIN_DIR/harness-report"
 
 install_file "query-harness.example.py" "$SCRIPTS_DIR/query.py"
 install_file "ops.example.py" "$SCRIPTS_DIR/ops.py"
+install_file "control.example.py" "$SCRIPTS_DIR/control.py"
 install_file "log-search.example.py" "$SCRIPTS_DIR/log-search.py"
 install_file "refresh-state.example.py" "$SCRIPTS_DIR/refresh-state.py"
 install_file "status.example.py" "$SCRIPTS_DIR/status.py"
@@ -80,6 +84,9 @@ install_file "AGENTS.example.md" "$TEMPLATES_DIR/AGENTS.template.md"
 chmod +x \
   "$BIN_DIR/harness-query" \
   "$BIN_DIR/harness-ops" \
+  "$BIN_DIR/harness-tasks" \
+  "$BIN_DIR/harness-task" \
+  "$BIN_DIR/harness-control" \
   "$BIN_DIR/harness-log-search" \
   "$BIN_DIR/harness-dashboard" \
   "$BIN_DIR/harness-status" \
@@ -146,6 +153,21 @@ cat > "$MANIFEST" <<'JSON'
       "source": "examples/harness-ops.example.sh"
     },
     {
+      "name": "harness-tasks",
+      "target": ".harness/bin/harness-tasks",
+      "source": "examples/harness-tasks.example.sh"
+    },
+    {
+      "name": "harness-task",
+      "target": ".harness/bin/harness-task",
+      "source": "examples/harness-task.example.sh"
+    },
+    {
+      "name": "harness-control",
+      "target": ".harness/bin/harness-control",
+      "source": "examples/harness-control.example.sh"
+    },
+    {
       "name": "harness-log-search",
       "target": ".harness/bin/harness-log-search",
       "source": "examples/harness-log-search.example.sh"
@@ -209,6 +231,11 @@ cat > "$MANIFEST" <<'JSON'
       "name": "ops.py",
       "target": ".harness/scripts/ops.py",
       "source": "examples/ops.example.py"
+    },
+    {
+      "name": "control.py",
+      "target": ".harness/scripts/control.py",
+      "source": "examples/control.example.py"
     },
     {
       "name": "log-search.py",
@@ -316,3 +343,8 @@ for path in state_paths:
 PY
 
 echo "installed full harness operator toolset into $HARNESS_DIR"
+echo "primary local commands:"
+echo "  .harness/bin/harness-submit"
+echo "  .harness/bin/harness-tasks"
+echo "  .harness/bin/harness-task"
+echo "  .harness/bin/harness-control"

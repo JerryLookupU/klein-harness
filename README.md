@@ -76,27 +76,28 @@ Install the skills and helper commands:
 This installs:
 
 - skills: `klein-harness`, `blueprint-architect`, `harness-log-search-cskill`
-- helpers: `harness-init`, `harness-bootstrap`, `harness-submit`, `harness-report`, `harness-kick`
+- primary commands: `harness-submit`, `harness-tasks`, `harness-task`, `harness-control`
+- compatibility helpers: `harness-init`, `harness-bootstrap`, `harness-report`, `harness-kick`
 
-Initialize a target project:
-
-```bash
-harness-init /path/to/project
-```
-
-Bootstrap the first orchestration round:
+Canonical 4-command surface:
 
 ```bash
-harness-bootstrap /path/to/project "根据 PRD 生成代码" "React + Vite" --context docs/prd.md
+harness-submit /path/to/project --goal "根据 PRD 生成代码" --context docs/prd.md
+harness-tasks /path/to/project
+harness-task /path/to/project T-001
+harness-control /path/to/project daemon status
 ```
 
-By default, `harness-bootstrap` auto-starts the runner daemon after bootstrap completes.
-Use `--no-daemon` when you want a fully manual session.
+`harness-submit` auto-runs `harness-init` when the project has not been initialized yet.
+The runtime handles first setup, appended requirements, duplicate submissions, extra context, and inspection intent through the same write path.
 
-Submit incremental work:
+Common submit shapes:
 
 ```bash
 harness-submit /path/to/project --goal "根据 PRD 落一个增量改动" --context docs/prd.md
+harness-submit /path/to/project --goal "检查当前 verify 状态和 compact log"
+harness-submit /path/to/project --goal "补充这次失败的额外日志证据" --context .harness/state/runner-logs/T-003.log
+harness-submit /path/to/project --goal "分析现有仓库并给出第一轮蓝图" --context docs/prd.md --context src/
 ```
 
 `harness-submit` is the only human write path. `--kind` is optional and treated as a hint.
@@ -109,10 +110,13 @@ harness-submit /path/to/project --kind bug --goal "T-042 在 verify 后回归"
 harness-submit /path/to/project --kind feedback --goal "当前 session handoff 存在歧义"
 ```
 
-Read the current runtime state:
+Read / inspect with the canonical surfaces:
 
 ```bash
-harness-report /path/to/project
+harness-tasks /path/to/project
+harness-task /path/to/project T-001
+harness-task /path/to/project T-001 logs --detail
+harness-control /path/to/project daemon restart
 ```
 
 ## Runtime Loop
@@ -209,48 +213,40 @@ Evidence and RCA are intentionally split:
 
 ## Command Surface
 
-Global entry points:
+Canonical public surface:
 
 ```bash
-harness-init /path/to/project
-harness-bootstrap /path/to/project "<GOAL>" [STACK_HINT]
 harness-submit /path/to/project --goal "<GOAL>" [--kind <HINT>] [--thread-key <KEY>] [--idempotency-key <KEY>]
-harness-report /path/to/project
-harness-kick "<PROJECT_GOAL>" [STACK_HINT] [PROJECT_ROOT]
+harness-tasks /path/to/project [summary|queue|tasks|requests|workers|daemon|blockers|logs]
+harness-task /path/to/project <TASK_ID|REQUEST_ID> [detail|logs]
+harness-control /path/to/project <daemon|task|request> [args...]
 ```
 
-Project-local operator commands:
+Examples:
+
+```bash
+harness-submit /path/to/project --goal "为当前仓库建立第一轮闭环" --context docs/prd.md
+harness-tasks /path/to/project queue
+harness-task /path/to/project T-003
+harness-task /path/to/project T-003 logs --detail
+harness-control /path/to/project task T-003 checkpoint --reason "operator wants a safe pause"
+harness-control /path/to/project daemon status
+```
+
+Advanced and compatibility helpers still exist, but they are no longer the primary UX:
 
 ```bash
 .harness/bin/harness-ops . top
-.harness/bin/harness-ops . workers
-.harness/bin/harness-ops . worktrees
-.harness/bin/harness-ops . merge-queue
-.harness/bin/harness-ops . conflicts
-.harness/bin/harness-ops . integration
-.harness/bin/harness-ops . daemon status
 .harness/bin/harness-ops . doctor
-.harness/bin/harness-status .
-.harness/bin/harness-report .
 .harness/bin/harness-query overview . --text
-.harness/bin/harness-query logs . --text
-.harness/bin/harness-query log . T-003 --detail --text
 .harness/bin/harness-log-search . --task-id T-003
-.harness/bin/harness-dashboard .
-.harness/bin/harness-watch . 2
-```
-
-Runner and verification surface:
-
-```bash
 .harness/bin/harness-runner tick .
-.harness/bin/harness-runner tick . --dispatch-mode print
 .harness/bin/harness-runner daemon . --interval 60
-.harness/bin/harness-runner daemon-status .
-.harness/bin/harness-runner daemon-stop .
-.harness/bin/harness-runner recover <TASK_ID> .
 .harness/bin/harness-verify-task <TASK_ID> . --write-back
-python3 .harness/scripts/refresh-state.py .
+harness-init /path/to/project
+harness-bootstrap /path/to/project "<GOAL>" [STACK_HINT]
+harness-report /path/to/project
+harness-kick "<PROJECT_GOAL>" [STACK_HINT] [PROJECT_ROOT]
 ```
 
 Notes:
@@ -261,7 +257,7 @@ Notes:
 - workers should not merge or push directly; runtime serializes local integration through `integrationBranch`
 - git conflict is treated as a structured harness event, not as a late remote-push surprise
 - `harness-runner daemon` keeps ticking and refreshing hot state on a fixed interval
-- `harness-bootstrap` and `harness-kick` start the runner daemon by default after bootstrap success
+- `harness-bootstrap` and `harness-kick` remain available as compatibility / expert helpers
 - use `--no-daemon` when you want a manual or fully operator-driven session
 - downstream workers should prefer hot state -> compact log md -> raw log
 - worker/backend health and runtime health are intentionally surfaced separately
@@ -301,12 +297,10 @@ Recommended triggers for `targeted` or `deep` research:
 Minimal end-to-end demo:
 
 ```bash
-harness-init /path/to/project
-harness-bootstrap /path/to/project "根据当前仓库建立第一轮闭环"
-harness-submit /path/to/project --goal "实现一个最小 smoke 任务"
-/path/to/project/.harness/bin/harness-runner tick /path/to/project --dispatch-mode print
-python3 /path/to/project/.harness/scripts/refresh-state.py /path/to/project
-harness-report /path/to/project
+harness-submit /path/to/project --goal "根据当前仓库建立第一轮闭环" --context docs/prd.md
+harness-tasks /path/to/project
+harness-task /path/to/project T-001
+harness-control /path/to/project daemon status
 ```
 
 Release smoke:

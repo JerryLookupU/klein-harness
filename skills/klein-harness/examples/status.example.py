@@ -12,10 +12,10 @@ def load_json(path: Path):
     return json.loads(path.read_text())
 
 
-def load_optional_json(path: Path):
+def load_optional_json(path: Path, default=None):
     if path.exists():
         return load_json(path)
-    return None
+    return default
 
 
 def count_tasks(tasks, statuses):

@@ -10,6 +10,7 @@ FORCE=0
 UPDATE_SHELL_RC=1
 PATH_RC_ACTION="unchanged"
 HELPERS_INSTALLED=0
+HELPER_NAMES=()
 
 shopt -s nullglob
 
@@ -103,9 +104,8 @@ install_helper_scripts() {
     helper_name="$(basename "$helper_src" .sh)"
     helper_dst="${BIN_DIR}/${helper_name}"
     install -m 755 "$helper_src" "$helper_dst"
-    echo "Installed helper:"
-    echo "  - ${helper_dst}"
     HELPERS_INSTALLED=1
+    HELPER_NAMES+=("$helper_name")
   done
 }
 
@@ -270,24 +270,24 @@ if printf '%s\n%s\n' "${installed[*]:-}" "${existing[*]:-}" | tr ' ' '\n' | grep
         echo "Shell config already contains ${BIN_DIR}."
         echo "Open a new shell or run:"
         echo "  - source ${SHELL_RC}"
-        echo "You can also run the helper directly:"
-        echo "  - ${BIN_DIR}/harness-kick"
+        echo "You can also run the primary command directly:"
+        echo "  - ${BIN_DIR}/harness-submit"
         ;;
       rc-updated)
         echo "Updated shell config:"
         echo "  - ${SHELL_RC}"
         echo "Open a new shell or run:"
         echo "  - source ${SHELL_RC}"
-        echo "You can also run the helper directly:"
-        echo "  - ${BIN_DIR}/harness-kick"
+        echo "You can also run the primary command directly:"
+        echo "  - ${BIN_DIR}/harness-submit"
         ;;
       *)
         echo "Updated shell config:"
         echo "  - ${SHELL_RC}"
         echo "Open a new shell or run:"
         echo "  - source ${SHELL_RC}"
-        echo "You can also run the helper directly:"
-        echo "  - ${BIN_DIR}/harness-kick"
+        echo "You can also run the primary command directly:"
+        echo "  - ${BIN_DIR}/harness-submit"
         ;;
     esac
   else
@@ -299,6 +299,19 @@ fi
 
 if [[ ${#installed[@]} -eq 0 && "$HELPERS_INSTALLED" -eq 0 ]]; then
   echo "Nothing changed."
+fi
+
+if [[ "$HELPERS_INSTALLED" -eq 1 ]]; then
+  echo "Primary commands:"
+  echo "  - harness-submit"
+  echo "  - harness-tasks"
+  echo "  - harness-task"
+  echo "  - harness-control"
+  echo "Compatibility helpers remain available:"
+  echo "  - harness-init"
+  echo "  - harness-bootstrap"
+  echo "  - harness-report"
+  echo "  - harness-kick"
 fi
 
 echo "Restart Codex to pick up new skills."

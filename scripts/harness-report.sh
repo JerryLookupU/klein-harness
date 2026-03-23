@@ -40,13 +40,13 @@ if [[ ! -x "$LOCAL_REPORT" ]]; then
 {
   "projectRoot": "$ROOT",
   "status": "project_not_initialized",
-  "hint": "run harness-init \\\"$ROOT\\\" or harness-bootstrap \\\"$ROOT\\\" \\\"<GOAL>\\\""
+  "hint": "run harness-submit \\\"$ROOT\\\" --goal \\\"<GOAL>\\\""
 }
 EOF
   else
     echo "project: $ROOT"
     echo "status: project_not_initialized"
-    echo "hint: run harness-init \"$ROOT\" or harness-bootstrap \"$ROOT\" \"<GOAL>\""
+    echo "hint: run harness-submit \"$ROOT\" --goal \"<GOAL>\""
   fi
   exit 0
 fi

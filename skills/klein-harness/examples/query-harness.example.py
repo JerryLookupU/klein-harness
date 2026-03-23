@@ -18,10 +18,10 @@ from runtime_common import (
 def load_json(path: Path):
     return json.loads(path.read_text())
 
-def load_optional_json(path: Path):
+def load_optional_json(path: Path, default=None):
     if path.exists():
         return load_json(path)
-    return None
+    return default
 
 
 def summarize_tasks(tasks):
@@ -225,6 +225,7 @@ def make_feedback_view(feedback_summary, task_id=None):
 def make_requests_view(request_summary, intake_summary=None, thread_state=None, change_summary=None):
     return {
         "requestCounts": request_summary.get("requestCounts", {}),
+        "byFrontDoorClass": request_summary.get("byFrontDoorClass", (intake_summary or {}).get("byFrontDoorClass", {})),
         "duplicateRequestCount": request_summary.get("duplicateRequestCount", 0),
         "contextMergeCount": request_summary.get("contextMergeCount", 0),
         "inspectionOverlayCount": request_summary.get("inspectionOverlayCount", 0),
@@ -525,6 +526,7 @@ def format_text(view, payload):
     if view == "requests":
         lines = [
             f"requestCounts: {payload.get('requestCounts', {})}",
+            f"byFrontDoorClass: {payload.get('byFrontDoorClass', {})}",
             f"duplicateRequestCount: {payload.get('duplicateRequestCount', 0)}",
             f"contextMergeCount: {payload.get('contextMergeCount', 0)}",
             f"inspectionOverlayCount: {payload.get('inspectionOverlayCount', 0)}",
@@ -533,9 +535,9 @@ def format_text(view, payload):
         ]
         active = payload.get("activeRequest")
         if active:
-            lines.append(f"activeRequest: {active.get('requestId')} [{active.get('status')}] {active.get('kind')} intent={active.get('normalizedIntentClass')} fusion={active.get('fusionDecision')} thread={active.get('threadKey')} epoch={active.get('targetPlanEpoch')}")
+            lines.append(f"activeRequest: {active.get('requestId')} [{active.get('status')}] {active.get('kind')} frontDoor={active.get('frontDoorClass')} intent={active.get('normalizedIntentClass')} fusion={active.get('fusionDecision')} thread={active.get('threadKey')} epoch={active.get('targetPlanEpoch')}")
         for item in payload.get("recentSubmissionClassifications", []):
-            lines.append(f"- classification {item.get('requestId')} intent={item.get('normalizedIntentClass')} fusion={item.get('fusionDecision')} thread={item.get('threadKey')} epoch={item.get('targetPlanEpoch')}")
+            lines.append(f"- classification {item.get('requestId')} frontDoor={item.get('frontDoorClass')} intent={item.get('normalizedIntentClass')} fusion={item.get('fusionDecision')} thread={item.get('threadKey')} epoch={item.get('targetPlanEpoch')}")
         for item in payload.get("recentRequests", []):
             lines.append(f"- {item.get('requestId')} [{item.get('status')}] {item.get('kind')} thread={item.get('threadKey')} epoch={item.get('targetPlanEpoch')} {item.get('goal')}")
         return "\n".join(lines)
