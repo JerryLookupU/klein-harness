@@ -16,6 +16,7 @@ allowed-tools: ["Bash", "Read", "Write", "Edit", "Glob", "Grep", "WebSearch"]
 - 需求模糊、边界不清、需要先定位约束
 - 多方案对比和冲突分析
 - 需要先出 draft blueprint，再 review，再定稿
+- 需要先决定是否要做 targeted / deep research，再进入 blueprint
 
 一句话：
 
@@ -30,6 +31,7 @@ allowed-tools: ["Bash", "Read", "Write", "Edit", "Glob", "Grep", "WebSearch"]
 - 在仓库内定位相关代码、接口、配置、测试、扩展点
 - 需要时查外部资料、官方文档、上游实现
 - 提炼约束、风险、依赖、兼容性要求
+- 在需要时先形成 research memo，再把 memo 消化进 blueprint
 - 生成草稿蓝图
 - 做蓝图检查
 - 做蓝图冲突分析
@@ -156,9 +158,40 @@ allowed-tools: ["Bash", "Read", "Write", "Edit", "Glob", "Grep", "WebSearch"]
 
 不要只根据 README 猜结构。
 
-## 3. 需要时做外部资料查询
+## 3. 先决定 `researchMode`
 
-当以下任一成立时，查外部资料：
+只选一个：
+
+- `none`
+- `targeted`
+- `deep`
+
+默认不要直接进 `deep`。
+
+判定规则：
+
+- `none`
+  - repo-local scan 已足够回答设计问题
+  - 外部框架行为不是关键变量
+- `targeted`
+  - 需要确认少量官方行为、上游接口、迁移约束
+  - 需要比较 1 到 2 个明确选项
+- `deep`
+  - 上游 / 协议 / framework 行为是主约束
+  - repository context 明显不足
+  - 多个架构方向都可行，但迁移/回滚/兼容风险很高
+
+推荐触发器：
+
+- 外部 framework 或 protocol 行为会影响设计
+- 上游 / 官方行为可能已变化
+- 当前仓库上下文不足
+- 多个架构选项需要对比
+- migration / rollout 风险较大
+
+## 4. 需要时做外部资料查询
+
+当 `researchMode != none` 且以下任一成立时，查外部资料：
 
 - 用户明确要求参考上游项目
 - 目标依赖外部框架/协议/官方行为
@@ -173,7 +206,39 @@ allowed-tools: ["Bash", "Read", "Write", "Edit", "Glob", "Grep", "WebSearch"]
 
 不要把“社区二手总结”当成主依据。
 
-## 4. 定位扩展点和不可破坏面
+## 5. 写 research memo
+
+如果 `researchMode != none`，先把外部资料消化成 repo-local memo，再进入 blueprint。
+
+推荐产物：
+
+- `.harness/research/<slug>.md`
+- `.harness/state/research-index.json`
+
+research memo 推荐至少包含：
+
+- front matter:
+  - `schemaVersion`
+  - `generator`
+  - `generatedAt`
+  - `slug`
+  - `researchMode`
+  - `question`
+  - `sources`
+- body:
+  - `## Summary`
+  - `## Findings`
+  - `## Options Compared`
+  - `## Risks`
+  - `## Recommendation`
+
+规则：
+
+- blueprint 读取 memo，而不是直接把外部网页长文本塞进主蓝图
+- memo 只保留设计决策需要的事实和比较
+- 外部原始页面仍然是证据，不是共享热面
+
+## 6. 定位扩展点和不可破坏面
 
 至少写清楚：
 
@@ -184,7 +249,15 @@ allowed-tools: ["Bash", "Read", "Write", "Edit", "Glob", "Grep", "WebSearch"]
 
 如果是扩展/重构模式，这一步不能跳。
 
-## 5. 生成草稿蓝图
+## 7. 生成草稿蓝图
+
+草稿蓝图输入面优先级：
+
+- repo-local scan
+- research memo
+- conflict analysis
+
+不要默认直接引用外部页面原文。
 
 草稿蓝图至少要有：
 
@@ -199,7 +272,7 @@ allowed-tools: ["Bash", "Read", "Write", "Edit", "Glob", "Grep", "WebSearch"]
 
 草稿可以保留多个备选方案，但不要只写成散文。
 
-## 6. 做蓝图检查
+## 8. 做蓝图检查
 
 检查这些问题：
 
@@ -210,7 +283,7 @@ allowed-tools: ["Bash", "Read", "Write", "Edit", "Glob", "Grep", "WebSearch"]
 - 有没有关键假设没落地
 - 有没有把“以后再处理”留在主路径上
 
-## 7. 做蓝图冲突分析
+## 9. 做蓝图冲突分析
 
 冲突至少按这些维度扫一遍：
 
@@ -231,7 +304,7 @@ allowed-tools: ["Bash", "Read", "Write", "Edit", "Glob", "Grep", "WebSearch"]
 不要只写“存在风险”。
 要写清楚冲突发生在哪里，为什么发生，怎么解。
 
-## 8. 定稿蓝图
+## 10. 定稿蓝图
 
 定稿蓝图必须能回答：
 

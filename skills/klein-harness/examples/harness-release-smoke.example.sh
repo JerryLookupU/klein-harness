@@ -339,9 +339,13 @@ BUG_RECONCILE_JSON="$TMP_ROOT/bug-reconcile.json"
 REPAIR_RECONCILE_JSON="$TMP_ROOT/repair-reconcile.json"
 RUN_JSON="$TMP_ROOT/run.json"
 RECOVER_JSON="$TMP_ROOT/recover.json"
+FINALIZE_JSON="$TMP_ROOT/finalize.json"
 REPORT_JSON="$TMP_ROOT/report.json"
 RCA_REPORT_JSON="$TMP_ROOT/rca-report.json"
 REPAIR_RUN_JSON="$TMP_ROOT/repair-run.json"
+REPAIR_FINALIZE_JSON="$TMP_ROOT/repair-finalize.json"
+LOG_SEARCH_JSON="$TMP_ROOT/log-search.json"
+LOG_SEARCH_DETAIL_JSON="$TMP_ROOT/log-search-detail.json"
 
 harness-submit "$PROJECT_ROOT" --kind implementation --goal "Apply smoke runtime patch" --source smoke > "$SUBMIT_JSON"
 REQUEST_ID="$(python3 - <<'PY' "$SUBMIT_JSON"
@@ -358,6 +362,7 @@ python3 "$PROJECT_ROOT/.harness/scripts/runner.py" heartbeat "$PROJECT_ROOT" T-1
 python3 "$PROJECT_ROOT/.harness/scripts/runner.py" heartbeat "$PROJECT_ROOT" T-100 "print:T-100" --phase exited --exit-code 7 >/dev/null
 "$PROJECT_ROOT/.harness/bin/harness-runner" recover T-100 "$PROJECT_ROOT" --dispatch-mode print > "$RECOVER_JSON"
 "$PROJECT_ROOT/.harness/bin/harness-verify-task" T-100 "$PROJECT_ROOT" --write-back >/dev/null
+python3 "$PROJECT_ROOT/.harness/scripts/runner.py" finalize "$PROJECT_ROOT" T-100 --tmux-session "print:T-100" --runner-status 0 > "$FINALIZE_JSON"
 python3 "$PROJECT_ROOT/.harness/scripts/refresh-state.py" "$PROJECT_ROOT" >/dev/null
 harness-report "$PROJECT_ROOT" --request-id "$REQUEST_ID" --format json > "$REPORT_JSON"
 
@@ -378,10 +383,41 @@ python3 "$PROJECT_ROOT/.harness/scripts/request.py" reconcile --root "$PROJECT_R
 python3 "$PROJECT_ROOT/.harness/scripts/route-session.py" --root "$PROJECT_ROOT" --task-id T-101 --write-back >/dev/null
 "$PROJECT_ROOT/.harness/bin/harness-runner" run T-101 "$PROJECT_ROOT" --dispatch-mode print > "$REPAIR_RUN_JSON"
 "$PROJECT_ROOT/.harness/bin/harness-verify-task" T-101 "$PROJECT_ROOT" --write-back >/dev/null
+python3 "$PROJECT_ROOT/.harness/scripts/runner.py" finalize "$PROJECT_ROOT" T-101 --tmux-session "print:T-101" --runner-status 0 > "$REPAIR_FINALIZE_JSON"
+
+cat > "$PROJECT_ROOT/.harness/research/smoke-runtime-scan.md" <<'EOF'
+---
+schemaVersion: "1.0"
+generator: "smoke-test"
+generatedAt: "2026-03-22T00:06:00+08:00"
+slug: "smoke-runtime-scan"
+researchMode: "targeted"
+question: "Does the smoke runtime need extra targeted operator evidence before a blueprint draft?"
+sources:
+  - "repo:.harness/task-pool.json"
+  - "repo:.harness/log-T-100.md"
+---
+
+## Summary
+
+- Compact logs expose enough context for downstream workers.
+- Raw runner logs remain necessary only for targeted evidence windows.
+
+## Findings
+
+- The finalize path emits a shareable handoff surface.
+
+## Recommendation
+
+- Use compact log summaries as the default blueprint input and fall back to raw evidence only on demand.
+EOF
+
 python3 "$PROJECT_ROOT/.harness/scripts/refresh-state.py" "$PROJECT_ROOT" >/dev/null
 harness-report "$PROJECT_ROOT" --request-id "$BUG_REQUEST_ID" --format json > "$RCA_REPORT_JSON"
+"$PROJECT_ROOT/.harness/bin/harness-log-search" "$PROJECT_ROOT" --task-id T-100 --keyword smoke --json > "$LOG_SEARCH_JSON"
+"$PROJECT_ROOT/.harness/bin/harness-log-search" "$PROJECT_ROOT" --task-id T-100 --keyword smoke --detail --json > "$LOG_SEARCH_DETAIL_JSON"
 
-python3 - <<'PY' "$PROJECT_ROOT" "$REQUEST_ID" "$BUG_REQUEST_ID" "$RECONCILE_JSON" "$RUN_JSON" "$RECOVER_JSON" "$REPORT_JSON" "$BUG_RECONCILE_JSON" "$REPAIR_RECONCILE_JSON" "$REPAIR_RUN_JSON" "$RCA_REPORT_JSON"
+python3 - <<'PY' "$PROJECT_ROOT" "$REQUEST_ID" "$BUG_REQUEST_ID" "$RECONCILE_JSON" "$RUN_JSON" "$RECOVER_JSON" "$FINALIZE_JSON" "$REPORT_JSON" "$BUG_RECONCILE_JSON" "$REPAIR_RECONCILE_JSON" "$REPAIR_RUN_JSON" "$REPAIR_FINALIZE_JSON" "$RCA_REPORT_JSON" "$LOG_SEARCH_JSON" "$LOG_SEARCH_DETAIL_JSON"
 import json
 import sys
 from pathlib import Path
@@ -392,11 +428,15 @@ bug_request_id = sys.argv[3]
 reconcile = json.load(open(sys.argv[4]))
 run_payload = json.load(open(sys.argv[5]))
 recover_payload = json.load(open(sys.argv[6]))
-report = json.load(open(sys.argv[7]))
-bug_reconcile = json.load(open(sys.argv[8]))
-repair_reconcile = json.load(open(sys.argv[9]))
-repair_run = json.load(open(sys.argv[10]))
-rca_report = json.load(open(sys.argv[11]))
+finalize_payload = json.load(open(sys.argv[7]))
+report = json.load(open(sys.argv[8]))
+bug_reconcile = json.load(open(sys.argv[9]))
+repair_reconcile = json.load(open(sys.argv[10]))
+repair_run = json.load(open(sys.argv[11]))
+repair_finalize = json.load(open(sys.argv[12]))
+rca_report = json.load(open(sys.argv[13]))
+log_search = json.load(open(sys.argv[14]))
+log_search_detail = json.load(open(sys.argv[15]))
 
 assert reconcile["bound"], "request should bind to at least one task"
 assert reconcile["bound"][0]["requestId"] == request_id
@@ -410,6 +450,9 @@ assert dispatched["routeDecision"]["gateStatus"] == "claimable"
 recover = recover_payload["dispatched"]
 assert recover["taskId"] == "T-100"
 assert recover["routeDecision"]["resumeStrategy"] == "resume"
+assert finalize_payload["taskId"] == "T-100"
+assert finalize_payload["finalStatus"] == "completed"
+assert finalize_payload["compactLogPath"] == ".harness/log-T-100.md"
 
 request_map = json.load(open(project_root / ".harness/state/request-task-map.json"))
 binding = next(item for item in request_map["bindings"] if item["requestId"] == request_id)
@@ -436,6 +479,21 @@ lineage_index = json.load(open(project_root / ".harness/state/lineage-index.json
 assert lineage_index["eventCount"] > 0
 assert request_id in lineage_index["requests"]
 
+raw_log_path = project_root / ".harness/state/runner-logs/T-100.log"
+compact_log_path = project_root / ".harness/log-T-100.md"
+assert raw_log_path.exists(), "raw runner log should still exist"
+assert compact_log_path.exists(), "compact handoff log should exist after finalize"
+compact_text = compact_log_path.read_text()
+assert "One-screen summary" in compact_text
+assert "Cross-worker relevant facts" in compact_text
+
+log_index = json.load(open(project_root / ".harness/state/log-index.json"))
+assert log_index["compactLogCount"] >= 2
+assert "T-100" in log_index["logsByTaskId"]
+assert any(item["taskId"] == "T-100" for item in log_search["matches"])
+assert log_search["matchCount"] >= 1
+assert log_search_detail["matches"][0]["detailWindows"], "detail mode should return raw evidence windows"
+
 assert any(item["requestId"] == bug_request_id and item["rcaId"] for item in bug_reconcile["bound"]), "bug request should allocate RCA"
 repair_request = next(
     item for item in request_index["requests"]
@@ -449,6 +507,8 @@ assert repair_bound["taskId"] == "T-101"
 repair_dispatched = repair_run["dispatched"]
 assert repair_dispatched["taskId"] == "T-101"
 assert repair_dispatched["dispatchMode"] == "print"
+assert repair_finalize["taskId"] == "T-101"
+assert repair_finalize["compactLogPath"] == ".harness/log-T-101.md"
 
 root_cause_log = [json.loads(line) for line in open(project_root / ".harness/root-cause-log.jsonl") if line.strip()]
 latest_by_rca = {}
@@ -477,6 +537,11 @@ assert bug_request["status"] == "completed"
 assert rca_report["selectedRequest"]["requestId"] == bug_request_id
 assert rca_report["rootCauseSummary"]["rcaCount"] >= 1
 assert rca_report["rootCauseSummary"]["openCount"] == 0
+
+research_index = json.load(open(project_root / ".harness/state/research-index.json"))
+assert research_index["memoCount"] >= 1
+assert research_index["researchModes"]["targeted"] >= 1
+assert "smoke-runtime-scan" in research_index["bySlug"]
 PY
 
 echo "release smoke passed"

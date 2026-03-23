@@ -51,6 +51,8 @@
 - `state/*.json` 优先服务机器读取
 - query / dashboard / daemon / operator 脚本默认先读 `state/*.json`
 - state 缺失时再回退到 `progress.md` / `task-pool.json` / `spec.json`
+- 下游 worker 默认读取顺序应为：`current/runtime/request-summary/lineage-index -> log-index / compact log -> raw runner log`
+- 不要默认让 worker 扫全文 `.harness/state/runner-logs/*.log`
 
 ## `lint` 复审节奏
 
@@ -114,6 +116,8 @@
 - `state/blueprint-index.json` -> `examples/blueprint-index.example.json`
 - `state/feedback-summary.json` -> `examples/feedback-summary.example.json`
 - `state/root-cause-summary.json` -> `hot-state RCA summary`
+- `state/log-index.json` -> `compact log hot index`
+- `state/research-index.json` -> `research memo hot index`
 
 如果项目准备把 CLI 模板复制到 `.harness/bin` / `.harness/scripts`，推荐再维护：
 
@@ -125,6 +129,108 @@
 - 记录来源模板
 - 记录版本或刷新时间
 - refresh 时据此判断是否需要增量更新
+
+## `.harness/log-<taskId>.md`
+
+如果项目需要把 worker transcript 压成跨 worker 可共享的 handoff，建议额外维护：
+
+- `.harness/log-<taskId>.md`
+
+推荐 front matter 至少包含：
+
+- `schemaVersion`
+- `generator`
+- `generatedAt`
+- `taskId`
+- `requestId`
+- `bindingId`
+- `sessionId`
+- `tmuxSession`
+- `roleHint`
+- `kind`
+- `status`
+- `shareability`
+- `rawLogPath`
+- `promptPath`
+- `verificationResultPath`
+- `diffSummaryPath`
+- `ownedPaths`
+- `tags`
+- `severity`
+
+推荐 body 至少包含：
+
+- `# One-screen summary`
+- `## Cross-worker relevant facts`
+- `## Decisions and assumptions`
+- `## Touched contracts / paths`
+- `## Blockers / risks`
+- `## Verification`
+- `## Evidence refs`
+
+推荐规则：
+
+- 不要转储完整 transcript
+- 不要写 hidden reasoning
+- 默认只保留下游 worker 真需要的事实和引用
+- 优先引用 raw log / prompt / verification 证据路径，而不是复制大段内容
+
+## `state/log-index.json`
+
+如果 query / dashboard / operator 需要热路径读取 compact logs，建议额外维护：
+
+- `.harness/state/log-index.json`
+
+推荐字段：
+
+- `schemaVersion`
+- `generator`
+- `generatedAt`
+- `compactLogCount`
+- `logsByTaskId`
+- `logsByRequestId`
+- `logsBySessionId`
+- `recentHighSignalLogs`
+- `openBlockers`
+- `recurringTags`
+
+## `.harness/research/<slug>.md`
+
+如果 blueprint 需要先做 gated research，建议把外部资料先收敛成 repo-local memo：
+
+- `.harness/research/<slug>.md`
+
+推荐 front matter：
+
+- `schemaVersion`
+- `generator`
+- `generatedAt`
+- `slug`
+- `researchMode`
+- `question`
+- `sources`
+
+推荐规则：
+
+- blueprint 优先消费 memo，而不是直接消费外部网页原文
+- `researchMode` 先固定为 `none | targeted | deep`
+- 研究 memo 是热共享结论，外部原始页面仍然是冷证据
+
+## `state/research-index.json`
+
+如果 blueprint flow 需要热路径读取 research memo 概览，建议额外维护：
+
+- `.harness/state/research-index.json`
+
+推荐字段：
+
+- `schemaVersion`
+- `generator`
+- `generatedAt`
+- `memoCount`
+- `researchModes`
+- `recentMemos`
+- `bySlug`
 
 ## `feedback-log.jsonl`
 

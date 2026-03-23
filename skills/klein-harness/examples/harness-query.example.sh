@@ -2,14 +2,14 @@
 set -euo pipefail
 
 if [ "$#" -lt 2 ]; then
-  echo "usage: $0 <overview|progress|current|blueprint|task|feedback> <ROOT> [TASK_ID] [--text]" >&2
+  echo "usage: $0 <overview|progress|current|blueprint|task|feedback|logs|log> <ROOT> [args...] [--text]" >&2
   exit 1
 fi
 
 VIEW="$1"
 ROOT="$2"
-TASK_ID="${3:-}"
-FORMAT_FLAG="${4:-}"
+shift 2
+ARGS=("$@")
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PYTHON_QUERY=""
 
@@ -22,21 +22,24 @@ else
   exit 1
 fi
 
-if [ "$TASK_ID" = "--text" ]; then
-  TASK_ID=""
-  FORMAT_FLAG="--text"
+FORMAT="json"
+PASSTHRU=()
+POSITIONAL_TASK=""
+
+for arg in "${ARGS[@]}"; do
+  if [ "$arg" = "--text" ]; then
+    FORMAT="text"
+    continue
+  fi
+  if [ -z "$POSITIONAL_TASK" ] && [[ "$arg" != --* ]] && [ "$VIEW" != "overview" ] && [ "$VIEW" != "progress" ] && [ "$VIEW" != "current" ] && [ "$VIEW" != "blueprint" ] && [ "$VIEW" != "logs" ]; then
+    POSITIONAL_TASK="$arg"
+    continue
+  fi
+  PASSTHRU+=("$arg")
+done
+
+if [ -n "$POSITIONAL_TASK" ]; then
+  PASSTHRU=(--task-id "$POSITIONAL_TASK" "${PASSTHRU[@]}")
 fi
 
-if [ "$FORMAT_FLAG" = "--text" ]; then
-  if [ -n "$TASK_ID" ]; then
-    python3 "$PYTHON_QUERY" --root "$ROOT" --view "$VIEW" --task-id "$TASK_ID" --format text
-  else
-    python3 "$PYTHON_QUERY" --root "$ROOT" --view "$VIEW" --format text
-  fi
-else
-  if [ -n "$TASK_ID" ]; then
-    python3 "$PYTHON_QUERY" --root "$ROOT" --view "$VIEW" --task-id "$TASK_ID" --format json
-  else
-    python3 "$PYTHON_QUERY" --root "$ROOT" --view "$VIEW" --format json
-  fi
-fi
+python3 "$PYTHON_QUERY" --root "$ROOT" --view "$VIEW" --format "$FORMAT" "${PASSTHRU[@]}"

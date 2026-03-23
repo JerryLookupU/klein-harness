@@ -99,6 +99,9 @@ def main():
     print(f"failed verifications: {(runtime_state or {}).get('failingVerificationCount', 0)}")
     print(f"feedback errors: {(runtime_state or {}).get('feedbackErrorCount', (feedback_summary or {}).get('errorCount', 0))}")
     print(f"illegal actions: {(runtime_state or {}).get('illegalActionCount', (feedback_summary or {}).get('illegalActionCount', 0))}")
+    print(f"compact logs: {(runtime_state or {}).get('compactLogCount', 0)}")
+    print(f"log blockers: {len((runtime_state or {}).get('openLogBlockers', []))}")
+    print(f"research memos: {(runtime_state or {}).get('researchMemoCount', 0)}")
     print(f"orchestration session: {(runtime_state or {}).get('orchestrationSessionId', session_registry.get('orchestrationSessionId', '-'))}")
     print(f"pending blockers: {len(blockers)}")
     if (runtime_state or {}).get('lastTickAt'):

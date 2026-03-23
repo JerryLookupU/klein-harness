@@ -25,6 +25,12 @@ Add stable provenance capture for message events and tool-result artifacts.
 - avoid rewriting recall planner in the first lane
 - preserve existing test surfaces where possible
 
+## Research Gate
+
+- `researchMode`: `targeted`
+- `researchMemoPath`: `.harness/research/react-router-data-loading.md`
+- rationale: upstream routing/data-loading behavior affects migration shape
+
 ## Candidate Directions
 
 ### Direction A
@@ -48,4 +54,3 @@ Infer provenance lazily during retrieval.
 ## Open Questions
 
 - should provenance IDs be globally stable or workspace-scoped?
-

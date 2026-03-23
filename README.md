@@ -16,10 +16,11 @@ Klein-Harness turns a repository into a re-entrant control surface:
 - symptom evidence stays separate from RCA allocation
 - reports, failures, audits, and replans can re-enter as the next request
 
-This repo ships two Codex skills:
+This repo ships three Codex skills:
 
 - `klein-harness` for runtime, routing, dispatch, verification, and operator control
 - `blueprint-architect` for decomposition, research, draft blueprinting, conflict review, and final blueprint handoff
+- `harness-log-search-cskill` for compact handoff log retrieval and targeted raw evidence windows
 
 ## What It Is
 
@@ -146,6 +147,8 @@ Primary hot state:
 - `.harness/state/root-cause-summary.json`
 - `.harness/state/request-summary.json`
 - `.harness/state/lineage-index.json`
+- `.harness/state/log-index.json`
+- `.harness/state/research-index.json`
 
 Primary append-only logs:
 
@@ -183,6 +186,9 @@ Project-local operator commands:
 .harness/bin/harness-status .
 .harness/bin/harness-report .
 .harness/bin/harness-query overview . --text
+.harness/bin/harness-query logs . --text
+.harness/bin/harness-query log . T-003 --detail --text
+.harness/bin/harness-log-search . --task-id T-003
 .harness/bin/harness-dashboard .
 .harness/bin/harness-watch . 2
 ```
@@ -207,6 +213,23 @@ Notes:
 - `harness-runner daemon` keeps ticking and refreshing hot state on a fixed interval
 - `harness-bootstrap` and `harness-kick` start the runner daemon by default after bootstrap success
 - use `--no-daemon` when you want a manual or fully operator-driven session
+- downstream workers should prefer hot state -> compact log md -> raw log
+
+## Compact Logs And Blueprint Research
+
+Klein-Harness keeps raw runner logs as cold evidence and adds a compact cross-worker handoff layer:
+
+- raw evidence stays in `.harness/state/runner-logs/<taskId>.log`
+- compact handoff stays in `.harness/log-<taskId>.md`
+- hot log summary stays in `.harness/state/log-index.json`
+- targeted retrieval is available through `.harness/bin/harness-log-search`
+
+Blueprint work now includes a gated research stage:
+
+- `researchMode: none | targeted | deep`
+- research memos live in `.harness/research/<slug>.md`
+- hot memo summary lives in `.harness/state/research-index.json`
+- blueprint generation should consume repo-local scan + research memo + conflict review
 
 ## Demo Flow
 
@@ -233,6 +256,7 @@ Skills:
 
 - `skills/klein-harness/SKILL.md`
 - `skills/blueprint-architect/SKILL.md`
+- `skills/harness-log-search-cskill/SKILL.md`
 
 References:
 
@@ -252,6 +276,8 @@ Architecture docs:
 
 - `docs/runtime-request-spec.md`
 - `docs/klein-architecture.md`
+- `docs/log-search-architecture.md`
+- `docs/blueprint-research-stage.md`
 
 ## Recommended Reading
 

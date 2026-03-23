@@ -8,7 +8,9 @@ from runtime_common import (
     TASK_ACTIVE_STATUSES,
     build_feedback_summary,
     build_lineage_index,
+    build_log_index,
     build_root_cause_summary,
+    build_research_index,
     build_request_summary,
     ensure_runtime_scaffold,
     load_json,
@@ -44,6 +46,8 @@ def main():
     feedback_summary = build_feedback_summary(feedback_entries)
     root_cause_entries = load_jsonl(files["root_cause_log_path"])
     root_cause_summary = build_root_cause_summary(root_cause_entries)
+    log_index = build_log_index(root)
+    research_index = build_research_index(root)
     runner_state = load_json(files["runner_state_path"])
     request_index = load_json(files["request_index_path"])
     request_task_map = load_json(files["request_task_map_path"])
@@ -107,6 +111,8 @@ def main():
             (item.get("primaryCauseDimension") for item in reversed(root_cause_summary.get("recentAllocations", [])) if item.get("primaryCauseDimension")),
             None,
         ),
+        "compactLogCount": log_index.get("compactLogCount", 0),
+        "researchMemoCount": research_index.get("memoCount", 0),
     }
 
     runtime_state = {
@@ -175,6 +181,13 @@ def main():
         "rootCauseByOwner": root_cause_summary.get("byOwnerRole", {}),
         "openRootCauseItems": root_cause_summary.get("openItems", []),
         "bugsMissingLineageCorrelation": root_cause_summary.get("bugsMissingLineageCorrelation", []),
+        "compactLogCount": log_index.get("compactLogCount", 0),
+        "recentHighSignalLogs": log_index.get("recentHighSignalLogs", []),
+        "openLogBlockers": log_index.get("openBlockers", []),
+        "recurringLogTags": log_index.get("recurringTags", {}),
+        "researchMemoCount": research_index.get("memoCount", 0),
+        "researchModes": research_index.get("researchModes", {}),
+        "recentResearchMemos": research_index.get("recentMemos", []),
     }
 
     blocks = {}
@@ -199,6 +212,9 @@ def main():
         "objective": spec.get("objective"),
         "integrationBranch": task_pool.get("integrationBranch"),
         "taskStatusCounts": dict(Counter(task.get("status", "unknown") for task in tasks)),
+        "compactLogCount": log_index.get("compactLogCount", 0),
+        "researchMemoCount": research_index.get("memoCount", 0),
+        "researchModes": research_index.get("researchModes", {}),
         "blocks": blocks,
     }
 
@@ -207,6 +223,8 @@ def main():
     write_json(files["state_dir"] / "blueprint-index.json", blueprint_index)
     write_json(files["feedback_summary_path"], feedback_summary)
     write_json(files["root_cause_summary_path"], root_cause_summary)
+    write_json(files["log_index_path"], log_index)
+    write_json(files["research_index_path"], research_index)
     write_json(files["request_summary_path"], request_summary)
     write_json(files["lineage_index_path"], lineage_index)
 

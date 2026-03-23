@@ -46,6 +46,7 @@ install_file() {
 }
 
 install_file "harness-query.example.sh" "$BIN_DIR/harness-query"
+install_file "harness-log-search.example.sh" "$BIN_DIR/harness-log-search"
 install_file "harness-dashboard.example.sh" "$BIN_DIR/harness-dashboard"
 install_file "harness-status.example.sh" "$BIN_DIR/harness-status"
 install_file "harness-watch.example.sh" "$BIN_DIR/harness-watch"
@@ -59,6 +60,7 @@ install_file "harness-submit.example.sh" "$BIN_DIR/harness-submit"
 install_file "harness-report.example.sh" "$BIN_DIR/harness-report"
 
 install_file "query-harness.example.py" "$SCRIPTS_DIR/query.py"
+install_file "log-search.example.py" "$SCRIPTS_DIR/log-search.py"
 install_file "refresh-state.example.py" "$SCRIPTS_DIR/refresh-state.py"
 install_file "status.example.py" "$SCRIPTS_DIR/status.py"
 install_file "render-prompt.example.py" "$SCRIPTS_DIR/render-prompt.py"
@@ -75,6 +77,7 @@ install_file "AGENTS.example.md" "$TEMPLATES_DIR/AGENTS.template.md"
 
 chmod +x \
   "$BIN_DIR/harness-query" \
+  "$BIN_DIR/harness-log-search" \
   "$BIN_DIR/harness-dashboard" \
   "$BIN_DIR/harness-status" \
   "$BIN_DIR/harness-watch" \
@@ -135,6 +138,11 @@ cat > "$MANIFEST" <<'JSON'
       "source": "examples/harness-query.example.sh"
     },
     {
+      "name": "harness-log-search",
+      "target": ".harness/bin/harness-log-search",
+      "source": "examples/harness-log-search.example.sh"
+    },
+    {
       "name": "harness-dashboard",
       "target": ".harness/bin/harness-dashboard",
       "source": "examples/harness-dashboard.example.sh"
@@ -188,6 +196,11 @@ cat > "$MANIFEST" <<'JSON'
       "name": "query.py",
       "target": ".harness/scripts/query.py",
       "source": "examples/query-harness.example.py"
+    },
+    {
+      "name": "log-search.py",
+      "target": ".harness/scripts/log-search.py",
+      "source": "examples/log-search.example.py"
     },
     {
       "name": "refresh-state.py",

@@ -11,6 +11,7 @@ from pathlib import Path
 from runtime_common import (
     TASK_ACTIVE_STATUSES,
     TASK_COMPLETED_STATUSES,
+    build_compact_log_artifact,
     emit_follow_up_request,
     ensure_runtime_scaffold,
     find_task,
@@ -21,6 +22,7 @@ from runtime_common import (
     request_bindings_for_task,
     update_binding_state,
     update_session_binding,
+    write_log_index,
     write_json,
 )
 
@@ -163,8 +165,15 @@ def prompt_lines(task: dict, route_decision: dict, project_root: str):
         "",
         "请读取 .harness/progress.md、.harness/task-pool.json、.harness/session-registry.json。",
         "如果存在 .harness/state/feedback-summary.json，只读取当前 task 最近 3 条高严重度失败。",
+        "如果存在相关 .harness/log-<taskId>.md，默认先读 compact log，不要先扫其他 task 的 raw runner log。",
+        "检索顺序默认是：current/runtime/request-summary/lineage-index -> compact log md -> raw runner log。",
         f"找到任务 {task.get('taskId')}，按其 ownedPaths 和 verificationRuleIds 执行。",
         "执行完成后回写 task-pool.json、progress.md、lineage.jsonl、session-registry.json。",
+        "最后额外输出一个很小的 fenced JSON block，格式如下：",
+        "```KLEIN_HANDOFF_JSON",
+        '{"oneScreenSummary":[],"crossWorkerFacts":[],"decisionsAssumptions":[],"touchedContractsPaths":[],"blockersRisks":[],"verification":[],"openQuestions":[],"tags":[],"evidenceRefs":[]}',
+        "```",
+        "这个 block 只写 cross-worker relevant facts，不要泄露隐藏推理，不要粘贴大段文件内容。",
     ]
     for failure in route_decision.get("recentFailures", [])[:3]:
         lines.append(
@@ -216,6 +225,25 @@ def dispatch_task(task: dict, route_decision: dict, project_root: str, project_n
         f'exit "$runner_status"\n'
     )
     runner_script.chmod(0o755)
+
+    if dispatch_mode == "print":
+        log_path.write_text(
+            "\n".join(
+                [
+                    f"[runner-preview] task={task_id}",
+                    f"[runner-preview] dispatchMode={dispatch_mode}",
+                    f"[runner-preview] tmuxSession={tmux_name}",
+                    f"[runner-preview] resumeStrategy={route_decision.get('resumeStrategy', 'fresh')}",
+                    f"[runner-preview] gateReason={route_decision.get('gateReason')}",
+                    f"[runner-preview] promptPath={prompt_path}",
+                    f"[runner-preview] ownedPaths={json.dumps(task.get('ownedPaths', []), ensure_ascii=False)}",
+                    "",
+                    prompt_path.read_text(encoding='utf-8', errors='ignore'),
+                ]
+            ).rstrip()
+            + "\n",
+            encoding="utf-8",
+        )
 
     if dispatch_mode == "tmux":
         subprocess.run(["tmux", "new-session", "-d", "-s", tmux_name, f"bash {runner_script}"], check=True)
@@ -631,6 +659,21 @@ def cmd_finalize(root: Path, task_id: str, runner_status: int, tmux_session: str
                 dedupe_key=f"replan:{task_id}:{task.get('recoveryReason')}",
             )
 
+    refreshed_task_pool = load_json(task_pool_path)
+    refreshed_task = find_task(refreshed_task_pool.get("tasks", []), task_id)
+    refreshed_task_map = load_json(files["request_task_map_path"])
+    refreshed_bindings = request_bindings_for_task(refreshed_task_map, task_id)
+    primary_binding = refreshed_bindings[-1] if refreshed_bindings else None
+    route_decision = (primary_binding or {}).get("route")
+    compact_log = build_compact_log_artifact(
+        root,
+        refreshed_task,
+        primary_binding,
+        tmux_session,
+        route_decision,
+        generator="harness-runner",
+    )
+    write_log_index(root, generator="harness-runner")
     write_heartbeat(files["state_dir"], task_id, tmux_session or f"print:{task_id}", phase=task.get("status"), exit_code=runner_status)
     print(
         json.dumps(
@@ -639,6 +682,7 @@ def cmd_finalize(root: Path, task_id: str, runner_status: int, tmux_session: str
                 "taskId": task_id,
                 "finalStatus": task.get("status"),
                 "verificationStatus": verification_status,
+                "compactLogPath": str(compact_log["path"].relative_to(root)),
             },
             ensure_ascii=False,
             indent=2,

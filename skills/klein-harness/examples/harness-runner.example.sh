@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [ "$#" -lt 2 ]; then
+if [ "$#" -lt 1 ]; then
   cat <<'EOF' >&2
-usage: harness-runner <tick|run|recover|attach|list|daemon|daemon-stop|daemon-status> [args...]
+usage: harness-runner <tick|run|recover|finalize|attach|list|daemon|daemon-stop|daemon-status> [args...]
 
 commands:
   tick <ROOT> [--trigger shell] [--dispatch-mode tmux|print]
   run <TASK_ID> <ROOT> [--trigger shell] [--dispatch-mode tmux|print]
   recover <TASK_ID> <ROOT> [--trigger shell] [--dispatch-mode tmux|print]
+  finalize <ROOT> <TASK_ID> [--tmux-session NAME] [--runner-status N]
   attach <TASK_ID> <ROOT>
   list <ROOT>
   daemon <ROOT> [--interval N] [--dispatch-mode tmux|print] [--replace]
@@ -73,7 +74,7 @@ case "$COMMAND" in
   attach)
     attach_task "$@"
     ;;
-  tick|run|recover|list|daemon|daemon-stop|daemon-status)
+  tick|run|recover|finalize|list|daemon|daemon-stop|daemon-status)
     python3 "$PYTHON_RUNNER" "$COMMAND" "$@"
     ;;
   *)

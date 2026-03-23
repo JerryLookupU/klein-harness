@@ -8,6 +8,18 @@
 
 ## 最小蓝图结构
 
+如果 `researchMode != none`，在进入 blueprint 之前，先产出一份 repo-local research memo。
+
+推荐顺序：
+
+1. `Design Question`
+2. `Repo-local Scan`
+3. `Research Gate`
+4. `Research Memo`
+5. `Draft Blueprint`
+6. `Conflict Review`
+7. `Final Blueprint`
+
 一份合格 blueprint 至少包含：
 
 1. `Background`
@@ -22,6 +34,20 @@
 10. `Open Questions`
 
 ## Draft vs Final
+
+## Research Gate
+
+推荐固定字段：
+
+- `researchMode: none | targeted | deep`
+- `researchQuestion`
+- `researchMemoPath`
+
+规则：
+
+- `none`：直接从 repo-local scan 进入 draft blueprint
+- `targeted`：允许少量外部确认，先写 memo 再出 draft
+- `deep`：外部行为/选型是主约束，必须先把 findings 收敛进 memo
 
 ### Draft blueprint
 
@@ -93,4 +119,3 @@ Plan / task list 负责：
 - 哪些点会进入 `features.json`
 - 哪些点只是 `work-items`
 - 哪些点暂时不进 `task-pool`
-

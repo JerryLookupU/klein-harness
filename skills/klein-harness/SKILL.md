@@ -56,6 +56,18 @@ allowed-tools: ["Bash", "Read", "Write", "Edit", "Glob", "Grep"]
 - `.harness/session-registry.json`
 - `.harness/session-init.sh`
 
+如果项目已经启用热状态和 compact log layer，优先再读：
+
+- `.harness/state/current.json`
+- `.harness/state/runtime.json`
+- `.harness/state/request-summary.json`
+- `.harness/state/lineage-index.json`
+- `.harness/state/log-index.json`
+- `.harness/log-<taskId>.md`
+
+不要默认扫全文 `.harness/state/runner-logs/*.log`。
+raw logs 只用于 operator debug、RCA 证据、或定向 detail retrieval。
+
 如果项目根存在 `AGENTS.md`，也应在初始化和刷新时检查：
 
 - 是否存在清晰的 `SOUL` / 人格设定段
@@ -196,6 +208,7 @@ allowed-tools: ["Bash", "Read", "Write", "Edit", "Glob", "Grep"]
 - `progressive prompt renderer` -> `examples/harness-render-prompt.example.sh`
 - `harness-status` -> `examples/harness-status.example.sh`
 - `harness-query` -> `examples/harness-query.example.sh`
+- `harness-log-search` -> `examples/harness-log-search.example.sh`
 - `harness-dashboard` -> `examples/harness-dashboard.example.sh`
 - `harness-install-tools` -> `examples/harness-install-tools.example.sh`
 - `release smoke` -> `examples/harness-release-smoke.example.sh`
@@ -204,6 +217,7 @@ allowed-tools: ["Bash", "Read", "Write", "Edit", "Glob", "Grep"]
 - `harness-diff-summary` -> `examples/harness-diff-summary.example.sh`
 - `.harness/scripts/status.py` -> `examples/status.example.py`
 - `.harness/scripts/query.py` -> `examples/query-harness.example.py`
+- `.harness/scripts/log-search.py` -> `examples/log-search.example.py`
 - `.harness/scripts/refresh-state.py` -> `examples/refresh-state.example.py`
 - `.harness/scripts/route-session.py` -> `examples/route-session.example.py`
 - `.harness/scripts/render-prompt.py` -> `examples/render-prompt.example.py`
@@ -217,6 +231,8 @@ allowed-tools: ["Bash", "Read", "Write", "Edit", "Glob", "Grep"]
 - `audit-report.md` -> `examples/audit-report.example.md`
 - `audit worker prompt (gpt-5.3-codex)` -> `examples/audit-worker-prompt-gpt-5.3-codex.example.md`
 - `state/feedback-summary.json` -> `examples/feedback-summary.example.json`
+- `state/log-index.json` -> `hot compact log index`
+- `state/research-index.json` -> `hot research memo index`
 
 # Agent 进场顺序
 

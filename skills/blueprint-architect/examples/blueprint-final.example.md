@@ -26,6 +26,12 @@ Introduce deterministic provenance envelopes at ingest time so later retrieval, 
 - recall planner behavior must not regress
 - provenance must survive artifact-based ingest and async fallback paths
 
+## Research Gate
+
+- `researchMode`: `targeted`
+- `researchMemoPath`: `.harness/research/react-router-data-loading.md`
+- external framework behavior was first normalized into a repo-local memo before finalizing this blueprint
+
 ## Design
 
 - create a write-time provenance envelope

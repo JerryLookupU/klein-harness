@@ -6,6 +6,8 @@ import sys
 from collections import Counter
 from pathlib import Path
 
+from runtime_common import build_log_index, collect_compact_log_entries, extract_raw_log_windows
+
 
 def load_json(path: Path):
     return json.loads(path.read_text())
@@ -208,6 +210,90 @@ def make_feedback_view(feedback_summary, task_id=None):
     }
 
 
+def matches_log(entry, *, task_id=None, request_id=None, session_id=None, tag=None, path_filter=None, severity=None, status=None, keyword=None):
+    meta = entry.get("frontMatter", {})
+    haystack = " ".join(
+        [
+            meta.get("taskId") or "",
+            meta.get("requestId") or "",
+            meta.get("sessionId") or "",
+            " ".join(meta.get("tags", []) or []),
+            entry.get("body") or "",
+        ]
+    ).lower()
+    if task_id and meta.get("taskId") != task_id:
+        return False
+    if request_id and meta.get("requestId") != request_id:
+        return False
+    if session_id and meta.get("sessionId") != session_id:
+        return False
+    if tag and tag not in (meta.get("tags") or []):
+        return False
+    if path_filter:
+        paths = (meta.get("ownedPaths") or []) + [meta.get("rawLogPath") or ""]
+        if not any(path_filter in item for item in paths if item):
+            return False
+    if severity and meta.get("severity") != severity:
+        return False
+    if status and meta.get("status") != status:
+        return False
+    if keyword and keyword.lower() not in haystack:
+        return False
+    return True
+
+
+def make_logs_view(root: Path, log_index, **filters):
+    entries = collect_compact_log_entries(root)
+    matches = [entry for entry in entries if matches_log(entry, **filters)]
+    return {
+        "compactLogCount": log_index.get("compactLogCount", len(entries)),
+        "matchCount": len(matches),
+        "recentHighSignalLogs": log_index.get("recentHighSignalLogs", []),
+        "openBlockers": log_index.get("openBlockers", []),
+        "recurringTags": log_index.get("recurringTags", {}),
+        "matches": [
+            {
+                "taskId": entry.get("frontMatter", {}).get("taskId"),
+                "requestId": entry.get("frontMatter", {}).get("requestId"),
+                "sessionId": entry.get("frontMatter", {}).get("sessionId"),
+                "severity": entry.get("frontMatter", {}).get("severity"),
+                "status": entry.get("frontMatter", {}).get("status"),
+                "tags": entry.get("frontMatter", {}).get("tags", []),
+                "path": entry.get("path"),
+                "summary": entry.get("oneScreenSummary", [])[:3],
+            }
+            for entry in matches[:20]
+        ],
+    }
+
+
+def make_log_view(root: Path, *, task_id=None, request_id=None, keyword=None, detail=False):
+    entries = collect_compact_log_entries(root)
+    selected = None
+    for entry in entries:
+        if task_id and entry.get("frontMatter", {}).get("taskId") == task_id:
+            selected = entry
+            break
+        if request_id and entry.get("frontMatter", {}).get("requestId") == request_id:
+            selected = entry
+            break
+    if selected is None:
+        raise KeyError("compact log not found")
+    payload = {
+        "path": selected.get("path"),
+        "frontMatter": selected.get("frontMatter"),
+        "oneScreenSummary": selected.get("oneScreenSummary", []),
+        "facts": selected.get("facts", [])[:6],
+        "blockers": selected.get("blockers", [])[:6],
+        "evidenceRefs": selected.get("evidenceRefs", [])[:8],
+    }
+    if detail:
+        raw_log_rel = selected.get("frontMatter", {}).get("rawLogPath")
+        if raw_log_rel:
+            payload["detailWindows"] = extract_raw_log_windows(root / raw_log_rel, keywords=[keyword] if keyword else None, task_id=task_id)
+    return payload
+
+
 def format_text(view, payload):
     if view == "overview":
         lines = [
@@ -313,14 +399,53 @@ def format_text(view, payload):
                 f"- {failure.get('taskId')} {failure.get('feedbackType')} [{failure.get('severity')}] {failure.get('message')}"
             )
         return "\n".join(lines)
+    if view == "logs":
+        lines = [
+            f"compactLogCount: {payload.get('compactLogCount', 0)}",
+            f"matchCount: {payload.get('matchCount', 0)}",
+            f"openBlockers: {len(payload.get('openBlockers', []))}",
+            f"recurringTags: {payload.get('recurringTags', {})}",
+        ]
+        for item in payload.get("matches", []):
+            lines.append(
+                f"- {item.get('taskId')} [{item.get('severity')}/{item.get('status')}] {item.get('path')} :: {' | '.join(item.get('summary', []))}"
+            )
+        return "\n".join(lines)
+    if view == "log":
+        lines = [
+            f"path: {payload.get('path')}",
+            f"taskId: {payload.get('frontMatter', {}).get('taskId')}",
+            f"requestId: {payload.get('frontMatter', {}).get('requestId')}",
+            f"sessionId: {payload.get('frontMatter', {}).get('sessionId')}",
+            f"severity: {payload.get('frontMatter', {}).get('severity')}",
+            f"status: {payload.get('frontMatter', {}).get('status')}",
+            f"tags: {payload.get('frontMatter', {}).get('tags', [])}",
+        ]
+        lines.extend(payload.get("oneScreenSummary", []))
+        for blocker in payload.get("blockers", []):
+            lines.append(f"blocker: {blocker}")
+        if payload.get("detailWindows"):
+            lines.append("detailWindows:")
+            for window in payload["detailWindows"]:
+                lines.append(f"- lines {window.get('lineStart')}-{window.get('lineEnd')}")
+                lines.append(window.get("snippet"))
+        return "\n".join(lines)
     return json.dumps(payload, ensure_ascii=False, indent=2)
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", required=True)
-    parser.add_argument("--view", required=True, choices=["overview", "progress", "current", "blueprint", "task", "feedback"])
+    parser.add_argument("--view", required=True, choices=["overview", "progress", "current", "blueprint", "task", "feedback", "logs", "log"])
     parser.add_argument("--task-id")
+    parser.add_argument("--request-id")
+    parser.add_argument("--session-id")
+    parser.add_argument("--tag")
+    parser.add_argument("--path-filter")
+    parser.add_argument("--severity")
+    parser.add_argument("--status")
+    parser.add_argument("--keyword")
+    parser.add_argument("--detail", action="store_true")
     parser.add_argument("--format", default="json", choices=["json", "text"])
     args = parser.parse_args()
 
@@ -331,6 +456,7 @@ def main():
     runtime_state = load_optional_json(state_dir / "runtime.json")
     blueprint_state = load_optional_json(state_dir / "blueprint-index.json")
     feedback_summary = load_optional_json(state_dir / "feedback-summary.json")
+    log_index = load_optional_json(state_dir / "log-index.json") or build_log_index(root)
 
     progress = current_state or load_progress(harness / "progress.md")
     task_pool = load_json(harness / "task-pool.json")
@@ -372,6 +498,27 @@ def main():
         payload = make_task_view(find_task(tasks, args.task_id), feedback_summary)
     elif args.view == "feedback":
         payload = make_feedback_view(feedback_summary, args.task_id)
+    elif args.view == "logs":
+        payload = make_logs_view(
+            root,
+            log_index,
+            task_id=args.task_id,
+            request_id=args.request_id,
+            session_id=args.session_id,
+            tag=args.tag,
+            path_filter=args.path_filter,
+            severity=args.severity,
+            status=args.status,
+            keyword=args.keyword,
+        )
+    elif args.view == "log":
+        payload = make_log_view(
+            root,
+            task_id=args.task_id,
+            request_id=args.request_id,
+            keyword=args.keyword,
+            detail=args.detail,
+        )
     else:
         payload = blueprint_state or make_blueprint(spec, task_pool, items, tasks)
 
