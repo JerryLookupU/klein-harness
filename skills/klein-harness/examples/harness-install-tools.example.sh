@@ -36,8 +36,12 @@ install_file "harness-dashboard.example.sh" "$BIN_DIR/harness-dashboard"
 install_file "query-harness.example.py" "$SCRIPTS_DIR/query.py"
 install_file "control.example.py" "$SCRIPTS_DIR/control.py"
 install_file "refresh-state.example.py" "$SCRIPTS_DIR/refresh-state.py"
+install_file "runtime-common.example.py" "$SCRIPTS_DIR/runtime_common.py"
 
 chmod +x "$BIN_DIR/harness-query" "$BIN_DIR/harness-tasks" "$BIN_DIR/harness-task" "$BIN_DIR/harness-control" "$BIN_DIR/harness-dashboard"
+
+# The minimal toolset still depends on runtime_common-backed state refresh.
+python3 "$SCRIPTS_DIR/refresh-state.py" "$ROOT" >/dev/null
 
 cat > "$MANIFEST" <<'JSON'
 {
@@ -85,6 +89,11 @@ cat > "$MANIFEST" <<'JSON'
       "name": "refresh-state.py",
       "target": ".harness/scripts/refresh-state.py",
       "source": "examples/refresh-state.example.py"
+    },
+    {
+      "name": "runtime_common.py",
+      "target": ".harness/scripts/runtime_common.py",
+      "source": "examples/runtime-common.example.py"
     }
   ]
 }

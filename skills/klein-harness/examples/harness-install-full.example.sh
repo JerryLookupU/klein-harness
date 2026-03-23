@@ -143,6 +143,10 @@ spec.loader.exec_module(module)
 module.ensure_runtime_scaffold(root, generator="klein-harness")
 PY
 
+# Catch stale or partially upgraded runtime stacks during install instead of
+# letting operators discover them later through status/runner failures.
+python3 "$SCRIPTS_DIR/refresh-state.py" "$ROOT" >/dev/null
+
 cat > "$MANIFEST" <<'JSON'
 {
   "schemaVersion": "1.0",
