@@ -6,11 +6,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"klein-harness/internal/checkpoint"
 	"klein-harness/internal/dispatch"
 	"klein-harness/internal/lease"
 	"klein-harness/internal/tmux"
+	"klein-harness/internal/worker"
 )
 
 func main() {
@@ -141,15 +143,30 @@ func runBurst(args []string) error {
 	}
 	checkpointPath := dispatch.DefaultCheckpointPath(*root, ticket.TaskID, ticket.Attempt)
 	outcomePath := filepath.Join(filepath.Dir(checkpointPath), "outcome.json")
+	bundle, err := worker.Prepare(*root, ticket, leaseRecord.LeaseID)
+	if err != nil {
+		return err
+	}
 	result, err := tmux.RunBoundedBurst(tmux.BurstRequest{
-		TaskID:         ticket.TaskID,
-		DispatchID:     ticket.DispatchID,
-		WorkerID:       *workerID,
-		Cwd:            ticket.Cwd,
-		Command:        ticket.Command,
+		TaskID:     ticket.TaskID,
+		DispatchID: ticket.DispatchID,
+		WorkerID:   *workerID,
+		Cwd:        ticket.Cwd,
+		Command: resolveWorkerCommand(ticket.Command, map[string]string{
+			"SESSION_ID":        ticket.ResumeSessionID,
+			"LAST_MESSAGE_PATH": filepath.Join(bundle.ArtifactDir, "last-message.txt"),
+		}),
+		PromptPath:     bundle.PromptPath,
 		Budget:         ticket.Budget,
 		CheckpointPath: checkpointPath,
 		OutcomePath:    outcomePath,
+		Artifacts: []string{
+			bundle.ManifestPath,
+			bundle.PromptPath,
+			filepath.Join(bundle.ArtifactDir, "worker-result.json"),
+			filepath.Join(bundle.ArtifactDir, "verify.json"),
+			filepath.Join(bundle.ArtifactDir, "handoff.md"),
+		},
 	})
 	if err != nil {
 		return err
@@ -174,18 +191,18 @@ func runBurst(args []string) error {
 		nextKind = "replan"
 	}
 	if _, err := checkpoint.IngestOutcome(checkpoint.IngestOutcomeRequest{
-		Root:              *root,
-		TaskID:            ticket.TaskID,
-		DispatchID:        ticket.DispatchID,
-		PlanEpoch:         ticket.PlanEpoch,
-		Attempt:           ticket.Attempt,
-		CausationID:       *causationID,
-		WorkerID:          *workerID,
-		LeaseID:           leaseRecord.LeaseID,
-		ReasonCodes:       []string{"bounded_burst_finished"},
-		Status:            result.Status,
-		Summary:           result.Summary,
-		CheckpointRef:     checkpointPath,
+		Root:          *root,
+		TaskID:        ticket.TaskID,
+		DispatchID:    ticket.DispatchID,
+		PlanEpoch:     ticket.PlanEpoch,
+		Attempt:       ticket.Attempt,
+		CausationID:   *causationID,
+		WorkerID:      *workerID,
+		LeaseID:       leaseRecord.LeaseID,
+		ReasonCodes:   []string{"bounded_burst_finished"},
+		Status:        result.Status,
+		Summary:       result.Summary,
+		CheckpointRef: checkpointPath,
 		DiffStats: checkpoint.DiffStats{
 			FilesChanged: result.DiffStats["filesChanged"],
 			Insertions:   result.DiffStats["insertions"],
@@ -264,4 +281,12 @@ func writeStdout(value any) error {
 	}
 	_, err = os.Stdout.Write(append(payload, '\n'))
 	return err
+}
+
+func resolveWorkerCommand(command string, replacements map[string]string) string {
+	resolved := command
+	for key, value := range replacements {
+		resolved = strings.ReplaceAll(resolved, "<"+key+">", value)
+	}
+	return resolved
 }

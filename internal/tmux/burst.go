@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,30 +16,32 @@ import (
 )
 
 type BurstRequest struct {
-	TaskID        string
-	DispatchID    string
-	WorkerID      string
-	Cwd           string
-	Command       string
-	Budget        dispatch.Budget
+	TaskID         string
+	DispatchID     string
+	WorkerID       string
+	Cwd            string
+	Command        string
+	PromptPath     string
+	Budget         dispatch.Budget
 	CheckpointPath string
-	OutcomePath   string
+	OutcomePath    string
+	Artifacts      []string
 }
 
 type Result struct {
-	SchemaVersion string             `json:"schemaVersion"`
-	Generator     string             `json:"generator"`
-	GeneratedAt   string             `json:"generatedAt"`
-	Status        string             `json:"status"`
-	Summary       string             `json:"summary"`
-	ExitCode      int                `json:"exitCode"`
-	StartedAt     string             `json:"startedAt"`
-	FinishedAt    string             `json:"finishedAt"`
-	DurationSec   int64              `json:"durationSec"`
-	Stdout        string             `json:"stdout"`
-	Stderr        string             `json:"stderr"`
-	DiffStats     map[string]int     `json:"diffStats"`
-	Artifacts     []string           `json:"artifacts"`
+	SchemaVersion string         `json:"schemaVersion"`
+	Generator     string         `json:"generator"`
+	GeneratedAt   string         `json:"generatedAt"`
+	Status        string         `json:"status"`
+	Summary       string         `json:"summary"`
+	ExitCode      int            `json:"exitCode"`
+	StartedAt     string         `json:"startedAt"`
+	FinishedAt    string         `json:"finishedAt"`
+	DurationSec   int64          `json:"durationSec"`
+	Stdout        string         `json:"stdout"`
+	Stderr        string         `json:"stderr"`
+	DiffStats     map[string]int `json:"diffStats"`
+	Artifacts     []string       `json:"artifacts"`
 }
 
 func RunBoundedBurst(request BurstRequest) (Result, error) {
@@ -67,6 +70,7 @@ func RunBoundedBurst(request BurstRequest) (Result, error) {
 		"workerId":      request.WorkerID,
 		"cwd":           request.Cwd,
 		"command":       request.Command,
+		"promptPath":    request.PromptPath,
 	}); err != nil {
 		return result, err
 	}
@@ -77,7 +81,11 @@ func RunBoundedBurst(request BurstRequest) (Result, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(maxMinutes)*time.Minute)
 	defer cancel()
 
-	command := exec.CommandContext(ctx, "/bin/sh", "-lc", request.Command)
+	commandText := request.Command
+	if request.PromptPath != "" {
+		commandText = fmt.Sprintf("%s < %s", request.Command, shellQuote(request.PromptPath))
+	}
+	command := exec.CommandContext(ctx, "/bin/sh", "-lc", commandText)
 	command.Dir = request.Cwd
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
@@ -103,6 +111,8 @@ func RunBoundedBurst(request BurstRequest) (Result, error) {
 		result.Summary = "bounded burst completed"
 	}
 	result.DiffStats = collectDiffStats(request.Cwd)
+	result.Artifacts = append(result.Artifacts, request.Artifacts...)
+	result.Artifacts = append(result.Artifacts, request.CheckpointPath, request.OutcomePath)
 	if err := writeJSON(request.OutcomePath, result); err != nil {
 		return result, err
 	}
@@ -152,4 +162,8 @@ func writeJSON(path string, value any) error {
 		return err
 	}
 	return os.WriteFile(path, append(payload, '\n'), 0o644)
+}
+
+func shellQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", `'\''`) + "'"
 }

@@ -8,32 +8,35 @@ import (
 )
 
 type Paths struct {
-	Root                 string
-	HarnessDir           string
-	StateDir             string
-	EventsDir            string
-	CheckpointsDir       string
-	EventLogPath         string
-	LeaseSummaryPath     string
-	DispatchSummaryPath  string
+	Root                  string
+	HarnessDir            string
+	StateDir              string
+	EventsDir             string
+	CheckpointsDir        string
+	ArtifactsDir          string
+	EventLogPath          string
+	LeaseSummaryPath      string
+	DispatchSummaryPath   string
 	CheckpointSummaryPath string
-	TaskPoolPath         string
-	SessionRegistryPath  string
-	RuntimePath          string
-	ThreadStatePath      string
+	TaskPoolPath          string
+	SessionRegistryPath   string
+	RuntimePath           string
+	ThreadStatePath       string
+	ProjectMetaPath       string
+	VerificationRulesPath string
 }
 
 type CommandProfile struct {
-	Standard   string `json:"standard"`
+	Standard    string `json:"standard"`
 	LocalCompat string `json:"localCompat"`
 }
 
 type DispatchProfile struct {
-	WorkspaceRoot string         `json:"workspaceRoot"`
-	WorktreePath  string         `json:"worktreePath"`
-	BranchName    string         `json:"branchName"`
-	BaseRef       string         `json:"baseRef"`
-	DiffBase      string         `json:"diffBase"`
+	WorkspaceRoot  string         `json:"workspaceRoot"`
+	WorktreePath   string         `json:"worktreePath"`
+	BranchName     string         `json:"branchName"`
+	BaseRef        string         `json:"baseRef"`
+	DiffBase       string         `json:"diffBase"`
 	CommandProfile CommandProfile `json:"commandProfile"`
 }
 
@@ -42,18 +45,28 @@ type Task struct {
 	ThreadKey                 string          `json:"threadKey"`
 	Kind                      string          `json:"kind"`
 	RoleHint                  string          `json:"roleHint"`
+	Title                     string          `json:"title"`
+	Summary                   string          `json:"summary"`
+	Description               string          `json:"description"`
 	WorkerMode                string          `json:"workerMode"`
 	Status                    string          `json:"status"`
 	PlanEpoch                 int             `json:"planEpoch"`
 	WorktreePath              string          `json:"worktreePath"`
+	BranchName                string          `json:"branchName"`
+	BaseRef                   string          `json:"baseRef"`
 	DiffBase                  string          `json:"diffBase"`
 	OwnedPaths                []string        `json:"ownedPaths"`
+	ForbiddenPaths            []string        `json:"forbiddenPaths"`
+	VerificationRuleIDs       []string        `json:"verificationRuleIds"`
 	ResumeStrategy            string          `json:"resumeStrategy"`
 	PreferredResumeSessionID  string          `json:"preferredResumeSessionId"`
 	CandidateResumeSessionIDs []string        `json:"candidateResumeSessionIds"`
 	CheckpointRequired        bool            `json:"checkpointRequired"`
 	CheckpointReason          string          `json:"checkpointReason"`
+	RoutingModel              string          `json:"routingModel"`
 	ExecutionModel            string          `json:"executionModel"`
+	OrchestrationSessionID    string          `json:"orchestrationSessionId"`
+	PromptStages              []string        `json:"promptStages"`
 	Dispatch                  DispatchProfile `json:"dispatch"`
 }
 
@@ -62,14 +75,60 @@ type TaskPool struct {
 }
 
 type ActiveBinding struct {
-	TaskID    string `json:"taskId"`
-	SessionID string `json:"sessionId"`
-	NodeID    string `json:"nodeId"`
+	TaskID          string `json:"taskId"`
+	SessionID       string `json:"sessionId"`
+	NodeID          string `json:"nodeId"`
+	BoundFromTaskID string `json:"boundFromTaskId,omitempty"`
+}
+
+type SessionRecord struct {
+	SessionID           string `json:"sessionId"`
+	RootSessionID       string `json:"rootSessionId,omitempty"`
+	ParentSessionID     string `json:"parentSessionId,omitempty"`
+	BranchRootSessionID string `json:"branchRootSessionId,omitempty"`
+	BranchOfSessionID   string `json:"branchOfSessionId,omitempty"`
+	SessionFamilyID     string `json:"sessionFamilyId,omitempty"`
+	SourceTaskID        string `json:"sourceTaskId,omitempty"`
+	Model               string `json:"model,omitempty"`
+	Role                string `json:"role,omitempty"`
+	Status              string `json:"status,omitempty"`
+	Purpose             string `json:"purpose,omitempty"`
+	LastUsedAt          string `json:"lastUsedAt,omitempty"`
+}
+
+type RoutingDecisionRecord struct {
+	TaskID                    string   `json:"taskId"`
+	OrchestrationSessionID    string   `json:"orchestrationSessionId,omitempty"`
+	RoutingMode               string   `json:"routingMode,omitempty"`
+	NeedsOrchestrator         bool     `json:"needsOrchestrator"`
+	DispatchReady             bool     `json:"dispatchReady"`
+	GateStatus                string   `json:"gateStatus,omitempty"`
+	GateReason                string   `json:"gateReason,omitempty"`
+	RoutingModel              string   `json:"routingModel,omitempty"`
+	ExecutionModel            string   `json:"executionModel,omitempty"`
+	ResumeStrategy            string   `json:"resumeStrategy,omitempty"`
+	PreferredResumeSessionID  string   `json:"preferredResumeSessionId,omitempty"`
+	CandidateResumeSessionIDs []string `json:"candidateResumeSessionIds,omitempty"`
+	SessionFamilyID           string   `json:"sessionFamilyId,omitempty"`
+	CacheAffinityKey          string   `json:"cacheAffinityKey,omitempty"`
+	RoutingReason             string   `json:"routingReason,omitempty"`
+	PromptStages              []string `json:"promptStages,omitempty"`
+	BranchOfSessionID         string   `json:"branchOfSessionId,omitempty"`
+	RoutedAt                  string   `json:"routedAt,omitempty"`
 }
 
 type SessionRegistry struct {
-	OrchestrationSessionID string          `json:"orchestrationSessionId"`
-	ActiveBindings         []ActiveBinding `json:"activeBindings"`
+	OrchestrationSessionID string                  `json:"orchestrationSessionId"`
+	OrchestrationSessions  []SessionRecord         `json:"orchestrationSessions,omitempty"`
+	Sessions               []SessionRecord         `json:"sessions,omitempty"`
+	RoutingDecisions       []RoutingDecisionRecord `json:"routingDecisions,omitempty"`
+	ActiveBindings         []ActiveBinding         `json:"activeBindings"`
+	LastCompletedByTask    map[string]string       `json:"lastCompletedByTask,omitempty"`
+}
+
+type ProjectMeta struct {
+	RepoRole                string `json:"repoRole"`
+	DirectTargetEditAllowed *bool  `json:"directTargetEditAllowed"`
 }
 
 func Resolve(root string) (Paths, error) {
@@ -81,7 +140,8 @@ func Resolve(root string) (Paths, error) {
 	stateDir := filepath.Join(harnessDir, "state")
 	eventsDir := filepath.Join(harnessDir, "events")
 	checkpointsDir := filepath.Join(harnessDir, "checkpoints")
-	for _, dir := range []string{harnessDir, stateDir, eventsDir, checkpointsDir} {
+	artifactsDir := filepath.Join(stateDir, "artifacts")
+	for _, dir := range []string{harnessDir, stateDir, eventsDir, checkpointsDir, artifactsDir} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return Paths{}, err
 		}
@@ -92,6 +152,7 @@ func Resolve(root string) (Paths, error) {
 		StateDir:              stateDir,
 		EventsDir:             eventsDir,
 		CheckpointsDir:        checkpointsDir,
+		ArtifactsDir:          artifactsDir,
 		EventLogPath:          filepath.Join(eventsDir, "a2a.jsonl"),
 		LeaseSummaryPath:      filepath.Join(stateDir, "lease-summary.json"),
 		DispatchSummaryPath:   filepath.Join(stateDir, "dispatch-summary.json"),
@@ -100,16 +161,14 @@ func Resolve(root string) (Paths, error) {
 		SessionRegistryPath:   filepath.Join(harnessDir, "session-registry.json"),
 		RuntimePath:           filepath.Join(stateDir, "runtime.json"),
 		ThreadStatePath:       filepath.Join(stateDir, "thread-state.json"),
+		ProjectMetaPath:       filepath.Join(harnessDir, "project-meta.json"),
+		VerificationRulesPath: filepath.Join(harnessDir, "verification-rules", "manifest.json"),
 	}, nil
 }
 
 func LoadTask(root, taskID string) (Task, error) {
-	paths, err := Resolve(root)
+	pool, err := LoadTaskPool(root)
 	if err != nil {
-		return Task{}, err
-	}
-	var pool TaskPool
-	if err := loadJSON(paths.TaskPoolPath, &pool); err != nil {
 		return Task{}, err
 	}
 	for _, task := range pool.Tasks {
@@ -118,6 +177,21 @@ func LoadTask(root, taskID string) (Task, error) {
 		}
 	}
 	return Task{}, errors.New("task not found")
+}
+
+func LoadTaskPool(root string) (TaskPool, error) {
+	paths, err := Resolve(root)
+	if err != nil {
+		return TaskPool{}, err
+	}
+	var pool TaskPool
+	if err := loadJSON(paths.TaskPoolPath, &pool); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return TaskPool{}, nil
+		}
+		return TaskPool{}, err
+	}
+	return pool, nil
 }
 
 func LoadSessionRegistry(root string) (SessionRegistry, error) {
@@ -133,6 +207,52 @@ func LoadSessionRegistry(root string) (SessionRegistry, error) {
 		return SessionRegistry{}, err
 	}
 	return registry, nil
+}
+
+func SaveTaskPool(root string, pool TaskPool) error {
+	paths, err := Resolve(root)
+	if err != nil {
+		return err
+	}
+	return writeJSON(paths.TaskPoolPath, pool)
+}
+
+func UpsertTask(root string, task Task) error {
+	pool, err := LoadTaskPool(root)
+	if err != nil {
+		return err
+	}
+	for index, existing := range pool.Tasks {
+		if existing.TaskID == task.TaskID {
+			pool.Tasks[index] = task
+			return SaveTaskPool(root, pool)
+		}
+	}
+	pool.Tasks = append(pool.Tasks, task)
+	return SaveTaskPool(root, pool)
+}
+
+func SaveSessionRegistry(root string, registry SessionRegistry) error {
+	paths, err := Resolve(root)
+	if err != nil {
+		return err
+	}
+	return writeJSON(paths.SessionRegistryPath, registry)
+}
+
+func LoadProjectMeta(root string) (ProjectMeta, error) {
+	paths, err := Resolve(root)
+	if err != nil {
+		return ProjectMeta{}, err
+	}
+	var meta ProjectMeta
+	if err := loadJSON(paths.ProjectMetaPath, &meta); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return ProjectMeta{}, nil
+		}
+		return ProjectMeta{}, err
+	}
+	return meta, nil
 }
 
 func LoadLatestPlanEpoch(root string, task Task) (int, error) {
@@ -242,4 +362,12 @@ func loadJSON(path string, target any) error {
 		return err
 	}
 	return json.Unmarshal(payload, target)
+}
+
+func writeJSON(path string, value any) error {
+	payload, err := json.MarshalIndent(value, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, append(payload, '\n'), 0o644)
 }
