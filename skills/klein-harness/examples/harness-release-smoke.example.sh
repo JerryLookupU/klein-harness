@@ -811,6 +811,9 @@ assert any(item["kind"] == "audit" for item in request_index["requests"]), "veri
 lineage_index = json.load(open(project_root / ".harness/state/lineage-index.json"))
 assert lineage_index["eventCount"] > 0
 assert request_id in lineage_index["requests"]
+request_summary = json.load(open(project_root / ".harness/state/request-summary.json"))
+current_state = json.load(open(project_root / ".harness/state/current.json"))
+runtime_state = json.load(open(project_root / ".harness/state/runtime.json"))
 
 raw_log_path = project_root / ".harness/state/runner-logs/T-100.log"
 compact_log_path = project_root / ".harness/log-T-100.md"
@@ -899,22 +902,41 @@ completion_gate = json.load(open(project_root / ".harness/state/completion-gate.
 guard_state = json.load(open(project_root / ".harness/state/guard-state.json"))
 
 assert queue_summary["totalRequests"] >= 2
+assert queue_summary["queuedRequestColumns"]
+if queue_summary["queuedRequestRecords"]:
+    assert set(queue_summary["queuedRequestColumns"]) == set(queue_summary["queuedRequestRecords"][0].keys())
 assert intake_summary["byFrontDoorClass"]
+assert intake_summary["submissionColumns"]
+if intake_summary["submissionRecords"]:
+    assert set(intake_summary["submissionColumns"]) == set(intake_summary["submissionRecords"][0].keys())
 assert intake_summary["duplicateCount"] >= 1
 assert intake_summary["contextMergeCount"] >= 1
 assert intake_summary["inspectionOverlayCount"] >= 1
 assert change_summary["appendChangeCount"] >= 2
+assert change_summary["appendChangeColumns"]
+if change_summary["appendChangeRecords"]:
+    assert set(change_summary["appendChangeColumns"]) == set(change_summary["appendChangeRecords"][0].keys())
 assert thread_state["contextRotWarningCount"] >= 1
 thread_entry = thread_state["threads"][report_request["threadKey"]]
 assert thread_entry["mergedContextRefs"], "merged context should materialize into thread state"
 assert thread_entry["contextDigest"], "thread state should keep a compact context digest"
+assert thread_state["threadColumns"]
+if thread_state["threadRecords"]:
+    assert set(thread_state["threadColumns"]) == set(thread_state["threadRecords"][0].keys())
 assert "taskStatusCounts" in task_summary
+assert task_summary["activeTaskColumns"]
+if task_summary["activeTaskRecords"]:
+    assert set(task_summary["activeTaskColumns"]) == set(task_summary["activeTaskRecords"][0].keys())
 assert "workerNodes" in worker_summary
+assert worker_summary["workerNodeColumns"]
+if worker_summary["workerNodeRecords"]:
+    assert set(worker_summary["workerNodeColumns"]) == set(worker_summary["workerNodeRecords"][0].keys())
 assert any(item["taskId"] == "T-100" for item in worktree_registry["worktrees"])
 assert "items" in merge_queue
 assert "queueDepth" in merge_summary
 assert daemon_summary["dispatchBackendDefault"] == "print"
 assert daemon_summary["runtimeHealth"] in {"healthy", "degraded"}
+assert daemon_summary["workerBackendHealthRecords"]
 assert policy_summary["dispatch"]["defaultBackend"] == "tmux"
 assert research_summary["memoCount"] >= 1
 assert report["intakeSummary"]["byFrontDoorClass"]
@@ -922,6 +944,18 @@ assert "actionableTodoCount" in todo_summary
 assert completion_gate["status"] in {"open", "satisfied", "retired"}
 assert guard_state["status"] in {"ready", "blocked", "retire_ready", "archived"}
 assert guard_state["pendingCheckpointCount"] >= 0
+assert request_summary["requestColumns"]
+if request_summary["requestRecords"]:
+    assert set(request_summary["requestColumns"]) == set(request_summary["requestRecords"][0].keys())
+assert lineage_index["requestColumns"]
+if lineage_index["requestRecords"]:
+    assert set(lineage_index["requestColumns"]) == set(lineage_index["requestRecords"][0].keys())
+assert current_state["blockerCount"] >= 0
+assert current_state["nextActionCount"] >= 0
+assert runtime_state["activeTaskColumns"]
+if runtime_state["activeTaskRecords"]:
+    assert set(runtime_state["activeTaskColumns"]) == set(runtime_state["activeTaskRecords"][0].keys())
+assert runtime_state["requestBindingColumns"]
 
 assert ops_top["dispatchBackendDefault"] == "print"
 assert ops_top["runtimeHealth"] in {"healthy", "degraded"}

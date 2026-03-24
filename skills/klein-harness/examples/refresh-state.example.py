@@ -6,6 +6,10 @@ from collections import Counter
 from pathlib import Path
 
 from runtime_common import (
+    ACTIVE_TASK_COLUMNS,
+    LINEAGE_ACTIVE_BINDING_COLUMNS,
+    REQUEST_BINDING_COLUMNS,
+    align_flat_records,
     TASK_ACTIVE_STATUSES,
     build_change_summary,
     build_completion_gate,
@@ -51,6 +55,38 @@ from runtime_common import (
 
 def active_tasks(tasks):
     return [task for task in tasks if task.get("status") in TASK_ACTIVE_STATUSES]
+
+
+RUN_RECORD_COLUMNS = [
+    "taskId",
+    "dispatchMode",
+    "dispatchBackend",
+    "tmuxSession",
+    "strategy",
+    "sessionId",
+    "executionCwd",
+    "logPath",
+    "promptPath",
+    "runnerScriptPath",
+    "dispatchedAt",
+    "gateReason",
+]
+
+ROT_RECORD_COLUMNS = [
+    "taskId",
+    "threadKey",
+    "planEpoch",
+    "contextRotScore",
+    "contextRotStatus",
+    "contextRotReasons",
+]
+
+DRIFT_RECORD_COLUMNS = [
+    "taskId",
+    "threadKey",
+    "planEpoch",
+    "failures",
+]
 
 
 def main():
@@ -213,9 +249,18 @@ def main():
         "activeRequestTaskId": active_binding.get("taskId") if active_binding else None,
         "activeRequestSessionId": active_binding.get("sessionId") if active_binding else None,
         "blockers": progress.get("blockers", []),
+        "blockerCount": len(progress.get("blockers", [])),
+        "blockersCsv": " | ".join(progress.get("blockers", [])[:10]) if progress.get("blockers") else None,
         "nextActions": progress.get("nextActions", []),
+        "nextActionCount": len(progress.get("nextActions", [])),
+        "nextActionsCsv": " | ".join(progress.get("nextActions", [])[:10]) if progress.get("nextActions") else None,
         "lastAuditStatus": progress.get("lastAuditStatus"),
         "recentFailureDigest": feedback_summary.get("recentFailures", [])[-3:],
+        "recentFailureColumns": ["id", "taskId", "sessionId", "feedbackType", "severity", "message", "timestamp"],
+        "recentFailureRecords": align_flat_records(
+            feedback_summary.get("recentFailures", [])[-3:],
+            ["id", "taskId", "sessionId", "feedbackType", "severity", "message", "timestamp"],
+        ),
         "recentIllegalActionTaskIds": sorted(
             {
                 entry.get("taskId")
@@ -223,6 +268,15 @@ def main():
                 if entry.get("feedbackType") == "illegal_action" and entry.get("taskId")
             }
         ),
+        "recentIllegalActionTaskIdsCsv": ", ".join(
+            sorted(
+                {
+                    entry.get("taskId")
+                    for entry in feedback_summary.get("recentFailures", [])
+                    if entry.get("feedbackType") == "illegal_action" and entry.get("taskId")
+                }
+            )
+        ) or None,
         "openRootCauseCount": root_cause_summary.get("openCount", 0),
         "latestRootCauseDimension": next(
             (item.get("primaryCauseDimension") for item in reversed(root_cause_summary.get("recentAllocations", [])) if item.get("primaryCauseDimension")),
@@ -273,6 +327,50 @@ def main():
                 }
             )
 
+    active_task_records = [
+        {
+            "taskId": task.get("taskId"),
+            "kind": task.get("kind"),
+            "roleHint": task.get("roleHint"),
+            "status": task.get("status"),
+            "threadKey": task.get("threadKey"),
+            "planEpoch": task.get("planEpoch"),
+            "title": task.get("title"),
+            "nodeId": task.get("claim", {}).get("nodeId"),
+            "branchName": task.get("branchName"),
+            "baseRef": task.get("baseRef") or (task.get("dispatch") or {}).get("baseRef"),
+            "worktreePath": task.get("worktreePath"),
+            "worktreeStatus": task.get("worktreeStatus"),
+            "integrationBranch": task.get("integrationBranch") or task_pool.get("integrationBranch"),
+            "mergeStatus": task.get("mergeStatus"),
+            "cleanupStatus": task.get("cleanupStatus"),
+            "dispatchBackend": task.get("claim", {}).get("dispatchBackend"),
+            "boundSessionId": task.get("claim", {}).get("boundSessionId"),
+        }
+        for task in active
+    ]
+    active_run_records = align_flat_records(runner_state.get("activeRuns", []), RUN_RECORD_COLUMNS)
+    recoverable_run_records = align_flat_records(runner_state.get("recoverableRuns", []), RUN_RECORD_COLUMNS)
+    stale_run_records = align_flat_records(runner_state.get("staleRuns", []), RUN_RECORD_COLUMNS)
+    rot_record_rows = align_flat_records(rot_entries, ROT_RECORD_COLUMNS)
+    drift_record_rows = align_flat_records(drift_failures, DRIFT_RECORD_COLUMNS)
+    active_binding_record = next(
+        (
+            record
+            for record in request_summary.get("bindingRecords", [])
+            if active_binding and record.get("bindingId") == active_binding.get("bindingId")
+        ),
+        None,
+    )
+    active_lineage_binding_record = next(
+        (
+            record
+            for record in lineage_index.get("activeBindingRecords", [])
+            if active_binding and record.get("bindingId") == active_binding.get("bindingId")
+        ),
+        None,
+    )
+
     runtime_state = {
         "schemaVersion": "1.0",
         "generator": "klein-harness",
@@ -304,6 +402,8 @@ def main():
             }
             for task in active
         ],
+        "activeTaskColumns": ACTIVE_TASK_COLUMNS,
+        "activeTaskRecords": align_flat_records(active_task_records, ACTIVE_TASK_COLUMNS),
         "activeRunnerCount": len(runner_state.get("activeRuns", [])),
         "recoverableTaskCount": len(runner_state.get("recoverableRuns", [])),
         "staleRunnerCount": len(runner_state.get("staleRuns", [])),
@@ -317,13 +417,22 @@ def main():
         "tasksWithRecentFailures": feedback_summary.get("tasksWithRecentFailures", []),
         "recentFailures": feedback_summary.get("recentFailures", []),
         "activeRuns": runner_state.get("activeRuns", []),
+        "activeRunColumns": RUN_RECORD_COLUMNS,
+        "activeRunRecords": active_run_records,
         "recoverableRuns": runner_state.get("recoverableRuns", []),
+        "recoverableRunColumns": RUN_RECORD_COLUMNS,
+        "recoverableRunRecords": recoverable_run_records,
         "staleRuns": runner_state.get("staleRuns", []),
+        "staleRunColumns": RUN_RECORD_COLUMNS,
+        "staleRunRecords": stale_run_records,
         "lastTickAt": runner_state.get("lastTickAt"),
         "lastTrigger": runner_state.get("lastTrigger"),
         "requestCounts": request_summary.get("requestCounts", {}),
+        "requestCountRecords": request_summary.get("requestCountRecords", []),
         "activeRequest": active_request,
+        "activeRequestRecord": request_summary.get("activeRequestRecord"),
         "activeBinding": active_binding,
+        "activeBindingRecord": active_binding_record,
         "activeThreadKey": active_request.get("targetThreadKey") or active_request.get("threadKey"),
         "activePlanEpoch": active_request.get("targetPlanEpoch"),
         "boundRequestCount": request_summary.get("boundRequestCount", 0),
@@ -338,8 +447,13 @@ def main():
         "lineageEventCount": lineage_index.get("eventCount", 0),
         "lineageLastSeq": lineage_index.get("lastSeq", 0),
         "activeLineageBindings": lineage_index.get("activeBindings", []),
+        "activeLineageBindingColumns": LINEAGE_ACTIVE_BINDING_COLUMNS,
+        "activeLineageBindingRecords": lineage_index.get("activeBindingRecords", []),
+        "activeLineageBindingRecord": active_lineage_binding_record,
         "lineageRequestCount": len(lineage_index.get("requests", {})),
         "requestBindings": request_summary.get("bindings", []),
+        "requestBindingColumns": REQUEST_BINDING_COLUMNS,
+        "requestBindingRecords": request_summary.get("bindingRecords", []),
         "rootCauseCount": root_cause_summary.get("rcaCount", 0),
         "openRootCauseCount": root_cause_summary.get("openCount", 0),
         "underdeterminedRootCauseCount": root_cause_summary.get("underdeterminedCount", 0),
@@ -369,10 +483,15 @@ def main():
         "completionGate": completion_gate,
         "guardState": guard_state,
         "contextRotWarnings": [item for item in rot_entries if item.get("contextRotStatus") in {"warning", "downgraded"}][:10],
+        "contextRotWarningColumns": ROT_RECORD_COLUMNS,
+        "contextRotWarningRecords": [item for item in rot_record_rows if item.get("contextRotStatus") in {"warning", "downgraded"}][:10],
         "driftChecklistFailures": drift_failures[:10],
+        "driftChecklistFailureColumns": DRIFT_RECORD_COLUMNS,
+        "driftChecklistFailureRecords": drift_record_rows[:10],
         "runtimeHealth": daemon_summary.get("runtimeHealth"),
         "dispatchBackendDefault": daemon_summary.get("dispatchBackendDefault"),
         "workerBackendCounts": worker_summary.get("dispatchBackendCounts", {}),
+        "workerBackendCountRecords": daemon_summary.get("workerBackendHealthRecords", []),
     }
 
     blocks = {}

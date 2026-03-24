@@ -1497,6 +1497,50 @@ def build_queue_summary(request_index: dict, request_summary: dict, *, generator
         queued,
         key=lambda item: (priority_rank(item.get("priority"), policy_summary["queue"]["priorityOrder"]), item.get("createdAt") or ""),
     )
+    queued_records = [
+        {
+            "requestId": item.get("requestId"),
+            "requestKind": item.get("kind"),
+            "normalizedIntentClass": item.get("normalizedIntentClass"),
+            "fusionDecision": item.get("fusionDecision"),
+            "priority": item.get("priority"),
+            "threadKey": thread_key_from_request(item),
+            "targetPlanEpoch": item.get("targetPlanEpoch"),
+            "statusReason": item.get("statusReason"),
+            "createdAt": item.get("createdAt"),
+            "updatedAt": item.get("updatedAt"),
+            "goal": item.get("goal"),
+        }
+        for item in queued_sorted
+    ]
+    blocked_records = [
+        {
+            "requestId": item.get("requestId"),
+            "requestKind": item.get("kind"),
+            "normalizedIntentClass": item.get("normalizedIntentClass"),
+            "fusionDecision": item.get("fusionDecision"),
+            "priority": item.get("priority"),
+            "threadKey": thread_key_from_request(item),
+            "targetPlanEpoch": item.get("targetPlanEpoch"),
+            "statusReason": item.get("statusReason"),
+            "createdAt": item.get("createdAt"),
+            "updatedAt": item.get("updatedAt"),
+            "goal": item.get("goal"),
+        }
+        for item in blocked
+    ]
+    bound_records = [
+        {
+            "requestId": item.get("requestId"),
+            "requestKind": item.get("kind"),
+            "boundTaskCount": len(item.get("boundTaskIds") or []),
+            "boundTaskIdsCsv": csv_text(item.get("boundTaskIds")),
+            "bindingCount": len(item.get("bindingIds") or []),
+            "bindingIdsCsv": csv_text(item.get("bindingIds")),
+            "updatedAt": item.get("updatedAt"),
+        }
+        for item in bound
+    ]
     return {
         "schemaVersion": SCHEMA_VERSION,
         "generator": generator,
@@ -1514,55 +1558,31 @@ def build_queue_summary(request_index: dict, request_summary: dict, *, generator
         "inspectionOverlayCount": request_summary.get("inspectionOverlayCount", 0),
         "cancelledRequestCount": sum(1 for item in requests if item.get("status") == "cancelled"),
         "queuedByKind": dict(Counter(item.get("kind", "unknown") for item in queued)),
+        "queuedByKindRecords": counter_records(dict(Counter(item.get("kind", "unknown") for item in queued)), key_name="name", count_name="count"),
         "queuedByPriority": dict(Counter(item.get("priority", "unknown") for item in queued)),
+        "queuedByPriorityRecords": counter_records(dict(Counter(item.get("priority", "unknown") for item in queued)), key_name="name", count_name="count"),
         "oldestQueuedAt": queued_sorted[0].get("createdAt") if queued_sorted else None,
         "activeQueueHead": queued_sorted[0] if queued_sorted else None,
+        "activeQueueHeadRecord": align_flat_record(queued_records[0], QUEUE_REQUEST_COLUMNS) if queued_records else None,
         "unboundQueuedRequestCount": sum(1 for item in queued if not item.get("boundTaskIds")),
         "recentQueuedRequests": bounded(
-            [
-                {
-                    "requestId": item.get("requestId"),
-                    "kind": item.get("kind"),
-                    "normalizedIntentClass": item.get("normalizedIntentClass"),
-                    "fusionDecision": item.get("fusionDecision"),
-                    "priority": item.get("priority"),
-                    "goal": item.get("goal"),
-                    "threadKey": thread_key_from_request(item),
-                    "targetPlanEpoch": item.get("targetPlanEpoch"),
-                    "createdAt": item.get("createdAt"),
-                }
-                for item in queued_sorted
-            ],
+            queued_records,
             recent_limit,
         ),
+        "queuedRequestColumns": QUEUE_REQUEST_COLUMNS,
+        "queuedRequestRecords": bounded(align_flat_records(queued_records, QUEUE_REQUEST_COLUMNS), recent_limit),
         "recentBlockedRequests": bounded(
-            [
-                {
-                    "requestId": item.get("requestId"),
-                    "kind": item.get("kind"),
-                    "normalizedIntentClass": item.get("normalizedIntentClass"),
-                    "fusionDecision": item.get("fusionDecision"),
-                    "goal": item.get("goal"),
-                    "statusReason": item.get("statusReason"),
-                    "updatedAt": item.get("updatedAt"),
-                }
-                for item in blocked
-            ],
+            blocked_records,
             policy_summary["queue"]["maxBlockedItems"],
         ),
+        "blockedRequestColumns": QUEUE_REQUEST_COLUMNS,
+        "blockedRequestRecords": bounded(align_flat_records(blocked_records, QUEUE_REQUEST_COLUMNS), policy_summary["queue"]["maxBlockedItems"]),
         "recentBoundRequests": bounded(
-            [
-                {
-                    "requestId": item.get("requestId"),
-                    "kind": item.get("kind"),
-                    "boundTaskIds": item.get("boundTaskIds", []),
-                    "bindingIds": item.get("bindingIds", []),
-                    "updatedAt": item.get("updatedAt"),
-                }
-                for item in bound
-            ],
+            bound_records,
             recent_limit,
         ),
+        "boundRequestColumns": QUEUE_BOUND_REQUEST_COLUMNS,
+        "boundRequestRecords": bounded(align_flat_records(bound_records, QUEUE_BOUND_REQUEST_COLUMNS), recent_limit),
     }
 
 
@@ -1573,20 +1593,59 @@ def build_task_summary(task_pool: dict, feedback_summary: dict, lineage_index: d
     recoverable_ids = bounded([item.get("taskId") for item in runner_state.get("recoverableRuns", []) if item.get("taskId")], hot_limit)
     blocked_routes = bounded(runner_state.get("blockedRoutes", []), hot_limit)
     task_feedback = feedback_summary.get("taskFeedbackSummary", {})
+    active_task_records = [
+        {
+            "taskId": task.get("taskId"),
+            "kind": task.get("kind"),
+            "roleHint": task.get("roleHint"),
+            "status": task.get("status"),
+            "threadKey": task.get("threadKey"),
+            "planEpoch": task.get("planEpoch"),
+            "title": task.get("title"),
+            "nodeId": task.get("claim", {}).get("nodeId"),
+            "branchName": task.get("branchName"),
+            "baseRef": task.get("baseRef") or (task.get("dispatch") or {}).get("baseRef"),
+            "worktreePath": task.get("worktreePath"),
+            "worktreeStatus": task.get("worktreeStatus"),
+            "integrationBranch": integration_branch_for_task(task, task_pool),
+            "mergeStatus": task.get("mergeStatus"),
+            "cleanupStatus": task.get("cleanupStatus"),
+            "dispatchBackend": task.get("claim", {}).get("dispatchBackend"),
+            "boundSessionId": task.get("claim", {}).get("boundSessionId"),
+        }
+        for task in tasks
+        if task.get("status") in TASK_ACTIVE_STATUSES
+    ]
+    failure_task_records = [
+        {
+            "taskId": task_id,
+            "latestFeedbackType": summary.get("latestFeedbackType"),
+            "latestSeverity": summary.get("latestSeverity"),
+            "latestMessage": summary.get("latestMessage"),
+        }
+        for task_id, summary in task_feedback.items()
+        if summary.get("recentFailures")
+    ]
     return {
         "schemaVersion": SCHEMA_VERSION,
         "generator": generator,
         "generatedAt": now_iso(),
         "totalTaskCount": len(tasks),
         "taskStatusCounts": dict(Counter(task.get("status", "unknown") for task in tasks)),
+        "taskStatusCountRecords": counter_records(dict(Counter(task.get("status", "unknown") for task in tasks)), key_name="name", count_name="count"),
         "taskKindCounts": dict(Counter(task.get("kind", "unknown") for task in tasks)),
+        "taskKindCountRecords": counter_records(dict(Counter(task.get("kind", "unknown") for task in tasks)), key_name="name", count_name="count"),
         "threadKeyCount": len({task.get("threadKey") for task in tasks if task.get("threadKey")}),
         "planEpochs": dict(Counter(str(task.get("planEpoch")) for task in tasks if task.get("planEpoch") is not None)),
+        "planEpochRecords": counter_records(dict(Counter(str(task.get("planEpoch")) for task in tasks if task.get("planEpoch") is not None)), key_name="name", count_name="count"),
         "roleHintCounts": dict(Counter(task.get("roleHint", "unknown") for task in tasks)),
+        "roleHintCountRecords": counter_records(dict(Counter(task.get("roleHint", "unknown") for task in tasks)), key_name="name", count_name="count"),
         "workerModeCounts": dict(Counter(task.get("workerMode", "unknown") for task in tasks if task.get("workerMode"))),
+        "workerModeCountRecords": counter_records(dict(Counter(task.get("workerMode", "unknown") for task in tasks if task.get("workerMode"))), key_name="name", count_name="count"),
         "worktreeCount": sum(1 for task in tasks if task.get("worktreePath")),
         "worktreePreparedCount": sum(1 for task in tasks if task.get("worktreePreparedAt")),
         "mergeStatusCounts": dict(Counter(task.get("mergeStatus", "none") for task in tasks if task.get("mergeStatus"))),
+        "mergeStatusCountRecords": counter_records(dict(Counter(task.get("mergeStatus", "none") for task in tasks if task.get("mergeStatus"))), key_name="name", count_name="count"),
         "dispatchableTaskIds": dispatchable_ids,
         "recoverableTaskIds": recoverable_ids,
         "supersededTaskIds": bounded([task.get("taskId") for task in tasks if task.get("status") in TASK_SUPERSEDED_STATUSES], hot_limit),
@@ -1594,44 +1653,17 @@ def build_task_summary(task_pool: dict, feedback_summary: dict, lineage_index: d
         "verifiedTaskCount": sum(1 for task in tasks if task.get("verificationStatus") in {"pass", "skipped"}),
         "failingVerificationCount": sum(1 for task in tasks if task.get("verificationStatus") == "fail"),
         "tasksWithRecentFailures": bounded(
-            [
-                {
-                    "taskId": task_id,
-                    "latestFeedbackType": summary.get("latestFeedbackType"),
-                    "latestSeverity": summary.get("latestSeverity"),
-                    "latestMessage": summary.get("latestMessage"),
-                }
-                for task_id, summary in task_feedback.items()
-                if summary.get("recentFailures")
-            ],
+            failure_task_records,
             hot_limit,
         ),
+        "failureTaskColumns": TASK_FAILURE_COLUMNS,
+        "failureTaskRecords": bounded(align_flat_records(failure_task_records, TASK_FAILURE_COLUMNS), hot_limit),
         "activeTasks": bounded(
-            [
-                {
-                    "taskId": task.get("taskId"),
-                    "kind": task.get("kind"),
-                    "roleHint": task.get("roleHint"),
-                    "status": task.get("status"),
-                    "threadKey": task.get("threadKey"),
-                    "planEpoch": task.get("planEpoch"),
-                    "title": task.get("title"),
-                    "nodeId": task.get("claim", {}).get("nodeId"),
-                    "branchName": task.get("branchName"),
-                    "baseRef": task.get("baseRef") or (task.get("dispatch") or {}).get("baseRef"),
-                    "worktreePath": task.get("worktreePath"),
-                    "worktreeStatus": task.get("worktreeStatus"),
-                    "integrationBranch": integration_branch_for_task(task, task_pool),
-                    "mergeStatus": task.get("mergeStatus"),
-                    "cleanupStatus": task.get("cleanupStatus"),
-                    "dispatchBackend": task.get("claim", {}).get("dispatchBackend"),
-                    "boundSessionId": task.get("claim", {}).get("boundSessionId"),
-                }
-                for task in tasks
-                if task.get("status") in TASK_ACTIVE_STATUSES
-            ],
+            active_task_records,
             hot_limit,
         ),
+        "activeTaskColumns": ACTIVE_TASK_COLUMNS,
+        "activeTaskRecords": bounded(align_flat_records(active_task_records, ACTIVE_TASK_COLUMNS), hot_limit),
         "lineageTaskCount": len(lineage_index.get("tasks", {})),
     }
 
@@ -1692,6 +1724,19 @@ def build_worker_summary(task_pool: dict, session_registry: dict, runner_state: 
         )
     hot_limit = policy_summary["hotState"]["maxActiveItems"]
     active_bindings = bounded(session_registry.get("activeBindings", []), hot_limit)
+    runtime_map_records = [
+        {
+            "taskId": item.get("taskId"),
+            "dispatchBackend": item.get("dispatchBackend"),
+            "nodeId": item.get("nodeId"),
+            "backendSession": item.get("backendSession"),
+            "boundSessionId": item.get("boundSessionId"),
+            "worktreePath": item.get("worktreePath"),
+            "branchName": item.get("branchName"),
+            "nodeHealth": item.get("nodeHealth"),
+        }
+        for item in entries
+    ]
     return {
         "schemaVersion": SCHEMA_VERSION,
         "generator": generator,
@@ -1702,24 +1747,14 @@ def build_worker_summary(task_pool: dict, session_registry: dict, runner_state: 
         "recoverableWorkerCount": sum(1 for item in entries if item.get("nodeHealth") == "recoverable"),
         "nonExecutingWorkerCount": sum(1 for item in entries if item.get("nodeHealth") == "non-executing"),
         "dispatchBackendCounts": dict(Counter(item.get("dispatchBackend", "unknown") for item in entries)),
+        "dispatchBackendCountRecords": counter_records(dict(Counter(item.get("dispatchBackend", "unknown") for item in entries)), key_name="name", count_name="count"),
         "workerNodes": bounded(entries, hot_limit),
+        "workerNodeColumns": WORKER_NODE_COLUMNS,
+        "workerNodeRecords": bounded(align_flat_records(entries, WORKER_NODE_COLUMNS), hot_limit),
         "activeBindings": active_bindings,
-        "runtimeToWorkerMap": bounded(
-            [
-                {
-                    "taskId": item.get("taskId"),
-                    "dispatchBackend": item.get("dispatchBackend"),
-                    "nodeId": item.get("nodeId"),
-                    "backendSession": item.get("backendSession"),
-                    "boundSessionId": item.get("boundSessionId"),
-                    "worktreePath": item.get("worktreePath"),
-                    "branchName": item.get("branchName"),
-                    "nodeHealth": item.get("nodeHealth"),
-                }
-                for item in entries
-            ],
-            hot_limit,
-        ),
+        "runtimeToWorkerMap": bounded(runtime_map_records, hot_limit),
+        "runtimeToWorkerColumns": WORKER_RUNTIME_MAP_COLUMNS,
+        "runtimeToWorkerRecords": bounded(align_flat_records(runtime_map_records, WORKER_RUNTIME_MAP_COLUMNS), hot_limit),
     }
 
 
@@ -1736,6 +1771,7 @@ def build_daemon_summary(daemon_state: dict, runner_state: dict, worker_summary:
     session_alive = None
     if session_name:
         session_alive = tmux_session_alive(session_name)
+    backend_records = counter_records(worker_summary.get("dispatchBackendCounts", {}), key_name="dispatchBackend", count_name="workerCount")
     return {
         "schemaVersion": SCHEMA_VERSION,
         "generator": generator,
@@ -1753,6 +1789,11 @@ def build_daemon_summary(daemon_state: dict, runner_state: dict, worker_summary:
         "lastError": daemon_state.get("lastError"),
         "restartCount": daemon_state.get("restartCount", 0),
         "recentEvents": bounded(daemon_state.get("recentEvents", []), policy_summary["daemon"]["maxRecentErrors"]),
+        "recentEventColumns": ["timestamp", "kind", "status", "detail", "error"],
+        "recentEventRecords": bounded(
+            align_flat_records(daemon_state.get("recentEvents", []), ["timestamp", "kind", "status", "detail", "error"]),
+            policy_summary["daemon"]["maxRecentErrors"],
+        ),
         "activeRunnerCount": len(runner_state.get("activeRuns", [])),
         "recoverableTaskCount": len(runner_state.get("recoverableRuns", [])),
         "staleRunnerCount": len(runner_state.get("staleRuns", [])),
@@ -1762,6 +1803,8 @@ def build_daemon_summary(daemon_state: dict, runner_state: dict, worker_summary:
             "workerBackendCounts": worker_summary.get("dispatchBackendCounts", {}),
         },
         "workerBackendHealth": worker_summary.get("dispatchBackendCounts", {}),
+        "workerBackendHealthColumns": ["dispatchBackend", "workerCount"],
+        "workerBackendHealthRecords": backend_records,
         "runtimeToWorkerMap": worker_summary.get("runtimeToWorkerMap", []),
     }
 
@@ -4070,6 +4113,281 @@ def bounded_unique(values, limit: int):
         if len(result) >= limit:
             break
     return result
+
+
+def flat_scalar(value):
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, list):
+        parts = []
+        for item in value:
+            flattened = flat_scalar(item)
+            if flattened in (None, ""):
+                continue
+            parts.append(flattened if isinstance(flattened, str) else str(flattened))
+        return " | ".join(parts) if parts else None
+    if isinstance(value, dict):
+        compact = {}
+        for key, item in value.items():
+            flattened = flat_scalar(item)
+            if flattened in (None, "", [], {}):
+                continue
+            compact[key] = flattened
+        return json.dumps(compact, ensure_ascii=False, sort_keys=True) if compact else None
+    return str(value)
+
+
+def csv_text(values, limit: int = 20):
+    items = bounded_unique(values or [], limit)
+    return ", ".join(str(item) for item in items) if items else None
+
+
+def align_flat_record(record: dict, columns: list[str]) -> dict:
+    return {column: flat_scalar(record.get(column)) for column in columns}
+
+
+def align_flat_records(records: list[dict], columns: list[str]) -> list[dict]:
+    return [align_flat_record(record, columns) for record in records]
+
+
+def counter_records(counter_map: dict | None, *, key_name: str, count_name: str) -> list[dict]:
+    items = []
+    for key in sorted((counter_map or {}).keys()):
+        items.append({key_name: key, count_name: (counter_map or {}).get(key, 0)})
+    return items
+
+
+REQUEST_RECORD_COLUMNS = [
+    "requestId",
+    "requestStatus",
+    "requestKind",
+    "source",
+    "priority",
+    "frontDoorClass",
+    "normalizedIntentClass",
+    "fusionDecision",
+    "classificationReason",
+    "threadKey",
+    "targetPlanEpoch",
+    "effectStatus",
+    "impactClassification",
+    "duplicateOfRequestId",
+    "mergedIntoRequestId",
+    "activeTaskId",
+    "boundTaskCount",
+    "boundTaskIdsCsv",
+    "bindingCount",
+    "bindingIdsCsv",
+    "createdAt",
+    "updatedAt",
+    "goal",
+]
+
+REQUEST_BINDING_COLUMNS = [
+    "bindingId",
+    "requestId",
+    "requestStatus",
+    "taskId",
+    "taskTitle",
+    "bindingStatus",
+    "branchName",
+    "worktreePath",
+    "sessionId",
+    "diffSummaryJson",
+    "verificationStatus",
+    "verificationResultPath",
+    "updatedAt",
+]
+
+THREAD_RECORD_COLUMNS = [
+    "threadKey",
+    "currentPlanEpoch",
+    "requestCount",
+    "activeRequestCount",
+    "activeTaskCount",
+    "queuedTaskCount",
+    "supersededTaskCount",
+    "appendChangeCount",
+    "contextEnrichmentCount",
+    "inspectionCount",
+    "duplicateCount",
+    "latestRequestId",
+    "latestFusionDecision",
+    "latestImpactClassification",
+    "lastSubmissionAt",
+    "recentVerificationStatus",
+    "contextRotScore",
+    "contextRotStatus",
+    "contextRotWarningCount",
+    "requestIdsCsv",
+    "activeRequestIdsCsv",
+    "activeTaskIdsCsv",
+    "queuedTaskIdsCsv",
+    "supersededTaskIdsCsv",
+    "contextRotWarningsCsv",
+]
+
+APPEND_CHANGE_COLUMNS = [
+    "requestId",
+    "threadKey",
+    "targetPlanEpoch",
+    "impactClassification",
+    "supersededQueuedTaskCount",
+    "supersededQueuedTaskIdsCsv",
+    "checkpointTaskCount",
+    "checkpointTaskIdsCsv",
+    "goal",
+]
+
+INSPECTION_OVERLAY_COLUMNS = [
+    "requestId",
+    "threadKey",
+    "goal",
+    "fusionDecision",
+]
+
+LINEAGE_REQUEST_COLUMNS = [
+    "requestId",
+    "taskCount",
+    "taskIdsCsv",
+    "sessionCount",
+    "sessionIdsCsv",
+    "worktreePathCount",
+    "worktreePathsCsv",
+    "verificationStatusCount",
+    "verificationStatusesCsv",
+    "outcomeCount",
+    "outcomesCsv",
+    "lastEventKind",
+    "lastEventAt",
+]
+
+LINEAGE_TASK_COLUMNS = [
+    "taskId",
+    "requestCount",
+    "requestIdsCsv",
+    "sessionCount",
+    "sessionIdsCsv",
+    "worktreePath",
+    "diffSummaryJson",
+    "verificationStatus",
+    "outcomeJson",
+    "outcomeStatus",
+    "lastEventKind",
+    "lastEventAt",
+]
+
+LINEAGE_SESSION_COLUMNS = [
+    "sessionId",
+    "lastEventKind",
+    "lastEventAt",
+    "requestId",
+    "taskId",
+    "worktreePath",
+]
+
+LINEAGE_ACTIVE_BINDING_COLUMNS = [
+    "bindingId",
+    "requestId",
+    "taskId",
+    "bindingStatus",
+    "sessionId",
+    "worktreePath",
+    "diffSummaryJson",
+    "verificationStatus",
+    "outcomeJson",
+    "outcomeStatus",
+]
+
+QUEUE_REQUEST_COLUMNS = [
+    "requestId",
+    "requestKind",
+    "normalizedIntentClass",
+    "fusionDecision",
+    "priority",
+    "threadKey",
+    "targetPlanEpoch",
+    "statusReason",
+    "createdAt",
+    "updatedAt",
+    "goal",
+]
+
+QUEUE_BOUND_REQUEST_COLUMNS = [
+    "requestId",
+    "requestKind",
+    "boundTaskCount",
+    "boundTaskIdsCsv",
+    "bindingCount",
+    "bindingIdsCsv",
+    "updatedAt",
+]
+
+ACTIVE_TASK_COLUMNS = [
+    "taskId",
+    "kind",
+    "roleHint",
+    "status",
+    "threadKey",
+    "planEpoch",
+    "title",
+    "nodeId",
+    "branchName",
+    "baseRef",
+    "worktreePath",
+    "worktreeStatus",
+    "integrationBranch",
+    "mergeStatus",
+    "cleanupStatus",
+    "dispatchBackend",
+    "boundSessionId",
+]
+
+TASK_FAILURE_COLUMNS = [
+    "taskId",
+    "latestFeedbackType",
+    "latestSeverity",
+    "latestMessage",
+]
+
+WORKER_NODE_COLUMNS = [
+    "taskId",
+    "threadKey",
+    "planEpoch",
+    "roleHint",
+    "kind",
+    "status",
+    "workerMode",
+    "nodeId",
+    "dispatchBackend",
+    "backendSession",
+    "backendHealth",
+    "backendReachable",
+    "nodeHealth",
+    "boundSessionId",
+    "branchName",
+    "baseRef",
+    "worktreePath",
+    "integrationBranch",
+    "mergeStatus",
+    "lastHeartbeatAt",
+    "heartbeatAgeSeconds",
+    "lastKnownPhase",
+    "lastExitCode",
+]
+
+WORKER_RUNTIME_MAP_COLUMNS = [
+    "taskId",
+    "dispatchBackend",
+    "nodeId",
+    "backendSession",
+    "boundSessionId",
+    "worktreePath",
+    "branchName",
+    "nodeHealth",
+]
+
+COUNT_RECORD_COLUMNS = ["name", "count"]
 
 
 def record_request_thread_state(
@@ -6381,6 +6699,67 @@ def build_request_summary(index: dict, task_map: dict, task_pool: dict | None = 
     )
     active_request = active[0] if active else None
     binding_summary = []
+    request_records = []
+    recent_classification_records = []
+    requests_with_bindings = {}
+    for request in requests:
+        request_id = request.get("requestId")
+        request_bindings = bindings_by_request.get(request_id, [])
+        requests_with_bindings[request_id] = request_bindings
+        request_records.append(
+            {
+                "requestId": request_id,
+                "requestStatus": request.get("status"),
+                "requestKind": request.get("kind"),
+                "source": request.get("source"),
+                "priority": request.get("priority"),
+                "frontDoorClass": request.get("frontDoorClass"),
+                "normalizedIntentClass": request.get("normalizedIntentClass"),
+                "fusionDecision": request.get("fusionDecision"),
+                "classificationReason": request.get("classificationReason"),
+                "threadKey": thread_key_from_request(request),
+                "targetPlanEpoch": request.get("targetPlanEpoch"),
+                "effectStatus": request.get("effectStatus"),
+                "impactClassification": request.get("impactClassification"),
+                "duplicateOfRequestId": request.get("duplicateOfRequestId"),
+                "mergedIntoRequestId": request.get("mergedIntoRequestId"),
+                "activeTaskId": request.get("activeTaskId"),
+                "boundTaskCount": len(request.get("boundTaskIds") or []),
+                "boundTaskIdsCsv": csv_text(request.get("boundTaskIds")),
+                "bindingCount": len(request_bindings),
+                "bindingIdsCsv": csv_text([item.get("bindingId") for item in request_bindings]),
+                "createdAt": request.get("createdAt"),
+                "updatedAt": request.get("updatedAt"),
+                "goal": request.get("goal"),
+            }
+        )
+        recent_classification_records.append(
+            {
+                "requestId": request_id,
+                "requestStatus": request.get("status"),
+                "requestKind": request.get("kind"),
+                "source": request.get("source"),
+                "priority": request.get("priority"),
+                "frontDoorClass": request.get("frontDoorClass"),
+                "normalizedIntentClass": request.get("normalizedIntentClass"),
+                "fusionDecision": request.get("fusionDecision"),
+                "classificationReason": request.get("classificationReason"),
+                "threadKey": thread_key_from_request(request),
+                "targetPlanEpoch": request.get("targetPlanEpoch"),
+                "effectStatus": request.get("effectStatus"),
+                "impactClassification": request.get("impactClassification"),
+                "duplicateOfRequestId": request.get("duplicateOfRequestId"),
+                "mergedIntoRequestId": request.get("mergedIntoRequestId"),
+                "activeTaskId": request.get("activeTaskId"),
+                "boundTaskCount": len(request.get("boundTaskIds") or []),
+                "boundTaskIdsCsv": csv_text(request.get("boundTaskIds")),
+                "bindingCount": len(request_bindings),
+                "bindingIdsCsv": csv_text([item.get("bindingId") for item in request_bindings]),
+                "createdAt": request.get("createdAt"),
+                "updatedAt": request.get("updatedAt"),
+                "goal": request.get("goal"),
+            }
+        )
     for binding in bindings[-20:]:
         task = tasks_by_id.get(binding.get("taskId"), {})
         binding_summary.append({
@@ -6405,15 +6784,28 @@ def build_request_summary(index: dict, task_map: dict, task_pool: dict | None = 
             "verificationResultPath": binding.get("lineage", {}).get("verificationResultPath") or task.get("verificationResultPath"),
             "updatedAt": binding.get("updatedAt"),
         })
+    active_request_record = next(
+        (
+            record
+            for record in request_records
+            if active_request and record.get("requestId") == active_request.get("requestId")
+        ),
+        None,
+    )
 
     return {
         "schemaVersion": SCHEMA_VERSION,
         "generator": "klein-harness",
         "generatedAt": now_iso(),
         "requestCounts": counts,
+        "requestCountRecords": counter_records(counts, key_name="name", count_name="count"),
         "totalRequests": len(requests),
         "activeRequest": active_request,
+        "activeRequestRecord": align_flat_record(active_request_record, REQUEST_RECORD_COLUMNS) if active_request_record else None,
         "recentRequests": requests[-5:],
+        "requestColumns": REQUEST_RECORD_COLUMNS,
+        "requestRecords": align_flat_records(request_records, REQUEST_RECORD_COLUMNS),
+        "recentRequestRecords": bounded(align_flat_records(request_records[-10:], REQUEST_RECORD_COLUMNS), 10),
         "recentSubmissionClassifications": bounded(
             [
                 {
@@ -6430,7 +6822,11 @@ def build_request_summary(index: dict, task_map: dict, task_pool: dict | None = 
             ],
             10,
         ),
+        "classificationColumns": REQUEST_RECORD_COLUMNS,
+        "classificationRecords": bounded(align_flat_records(recent_classification_records[-10:], REQUEST_RECORD_COLUMNS), 10),
         "bindings": binding_summary,
+        "bindingColumns": REQUEST_BINDING_COLUMNS,
+        "bindingRecords": align_flat_records(binding_summary, REQUEST_BINDING_COLUMNS),
         "boundRequestCount": counts.get("bound", 0),
         "runningRequestCount": counts.get("running", 0),
         "recoverableRequestCount": counts.get("recoverable", 0),
@@ -6447,14 +6843,48 @@ def build_request_summary(index: dict, task_map: dict, task_pool: dict | None = 
 def build_intake_summary(index: dict, thread_state: dict | None = None, *, generator: str, policy_summary: dict) -> dict:
     requests = index.get("requests", [])
     recent_limit = policy_summary["intake"]["maxRecentSubmissions"]
+    by_front_door = dict(Counter(request.get("frontDoorClass", "unknown") for request in requests))
+    by_intent_class = dict(Counter(request.get("normalizedIntentClass", "unknown") for request in requests))
+    by_fusion_decision = dict(Counter(request.get("fusionDecision", "unknown") for request in requests))
+    submission_records = [
+        {
+            "requestId": request.get("requestId"),
+            "requestStatus": request.get("status"),
+            "requestKind": request.get("kind"),
+            "source": request.get("source"),
+            "priority": request.get("priority"),
+            "frontDoorClass": request.get("frontDoorClass"),
+            "normalizedIntentClass": request.get("normalizedIntentClass"),
+            "fusionDecision": request.get("fusionDecision"),
+            "classificationReason": request.get("classificationReason"),
+            "threadKey": thread_key_from_request(request),
+            "targetPlanEpoch": request.get("targetPlanEpoch"),
+            "effectStatus": request.get("effectStatus"),
+            "impactClassification": request.get("impactClassification"),
+            "duplicateOfRequestId": request.get("duplicateOfRequestId"),
+            "mergedIntoRequestId": request.get("mergedIntoRequestId"),
+            "activeTaskId": request.get("activeTaskId"),
+            "boundTaskCount": len(request.get("boundTaskIds") or []),
+            "boundTaskIdsCsv": csv_text(request.get("boundTaskIds")),
+            "bindingCount": len(request.get("bindingIds") or []),
+            "bindingIdsCsv": csv_text(request.get("bindingIds")),
+            "createdAt": request.get("createdAt"),
+            "updatedAt": request.get("updatedAt"),
+            "goal": request.get("goal"),
+        }
+        for request in requests
+    ]
     return {
         "schemaVersion": SCHEMA_VERSION,
         "generator": generator,
         "generatedAt": now_iso(),
         "submissionCount": len(requests),
-        "byFrontDoorClass": dict(Counter(request.get("frontDoorClass", "unknown") for request in requests)),
-        "byIntentClass": dict(Counter(request.get("normalizedIntentClass", "unknown") for request in requests)),
-        "byFusionDecision": dict(Counter(request.get("fusionDecision", "unknown") for request in requests)),
+        "byFrontDoorClass": by_front_door,
+        "byFrontDoorClassRecords": counter_records(by_front_door, key_name="name", count_name="count"),
+        "byIntentClass": by_intent_class,
+        "byIntentClassRecords": counter_records(by_intent_class, key_name="name", count_name="count"),
+        "byFusionDecision": by_fusion_decision,
+        "byFusionDecisionRecords": counter_records(by_fusion_decision, key_name="name", count_name="count"),
         "duplicateCount": sum(1 for request in requests if request.get("fusionDecision") == "duplicate_of_existing"),
         "contextMergeCount": sum(1 for request in requests if request.get("fusionDecision") == "merged_as_context"),
         "inspectionOverlayCount": sum(1 for request in requests if request.get("fusionDecision") == "inspection_overlay"),
@@ -6480,6 +6910,8 @@ def build_intake_summary(index: dict, thread_state: dict | None = None, *, gener
             ],
             recent_limit,
         ),
+        "submissionColumns": REQUEST_RECORD_COLUMNS,
+        "submissionRecords": bounded(align_flat_records(submission_records[-recent_limit:], REQUEST_RECORD_COLUMNS), recent_limit),
         "contextRotWarnings": bounded((thread_state or {}).get("contextRotWarnings", []), policy_summary["intake"]["maxRecentThreads"]),
     }
 
@@ -6565,6 +6997,38 @@ def build_thread_state(index: dict, task_pool: dict | None, request_summary: dic
         ],
         policy_summary["intake"]["maxRecentThreads"],
     )
+    thread_records = []
+    for thread in threads.values():
+        recent_verification = thread.get("recentVerification") or {}
+        thread_records.append(
+            {
+                "threadKey": thread.get("threadKey"),
+                "currentPlanEpoch": thread.get("currentPlanEpoch"),
+                "requestCount": len(thread.get("requestIds") or []),
+                "activeRequestCount": len(thread.get("activeRequestIds") or []),
+                "activeTaskCount": len(thread.get("activeTaskIds") or []),
+                "queuedTaskCount": len(thread.get("queuedTaskIds") or []),
+                "supersededTaskCount": len(thread.get("supersededTaskIds") or []),
+                "appendChangeCount": thread.get("appendChangeCount"),
+                "contextEnrichmentCount": thread.get("contextEnrichmentCount"),
+                "inspectionCount": thread.get("inspectionCount"),
+                "duplicateCount": thread.get("duplicateCount"),
+                "latestRequestId": thread.get("latestRequestId"),
+                "latestFusionDecision": thread.get("latestFusionDecision"),
+                "latestImpactClassification": thread.get("latestImpactClassification"),
+                "lastSubmissionAt": thread.get("lastSubmissionAt"),
+                "recentVerificationStatus": recent_verification.get("overallStatus"),
+                "contextRotScore": thread.get("contextRotScore"),
+                "contextRotStatus": thread.get("contextRotStatus"),
+                "contextRotWarningCount": len(thread.get("contextRotWarnings") or []),
+                "requestIdsCsv": csv_text(thread.get("requestIds")),
+                "activeRequestIdsCsv": csv_text(thread.get("activeRequestIds")),
+                "activeTaskIdsCsv": csv_text(thread.get("activeTaskIds")),
+                "queuedTaskIdsCsv": csv_text(thread.get("queuedTaskIds")),
+                "supersededTaskIdsCsv": csv_text(thread.get("supersededTaskIds")),
+                "contextRotWarningsCsv": csv_text(thread.get("contextRotWarnings")),
+            }
+        )
     return {
         "schemaVersion": SCHEMA_VERSION,
         "generator": generator,
@@ -6574,6 +7038,9 @@ def build_thread_state(index: dict, task_pool: dict | None, request_summary: dic
         "contextRotWarningCount": len(context_rot_warnings),
         "threads": threads,
         "recentThreads": bounded(list(threads.values())[::-1], policy_summary["threading"]["maxRecentThreadEvents"]),
+        "threadColumns": THREAD_RECORD_COLUMNS,
+        "threadRecords": align_flat_records(thread_records, THREAD_RECORD_COLUMNS),
+        "recentThreadRecords": bounded(align_flat_records(list(thread_records)[::-1], THREAD_RECORD_COLUMNS), policy_summary["threading"]["maxRecentThreadEvents"]),
         "contextRotWarnings": context_rot_warnings,
     }
 
@@ -6583,6 +7050,29 @@ def build_change_summary(index: dict, task_pool: dict | None, thread_state: dict
     append_requests = [request for request in index.get("requests", []) if request.get("normalizedIntentClass") == "append_change"]
     inspection_requests = [request for request in index.get("requests", []) if request.get("normalizedIntentClass") == "inspection"]
     superseded_tasks = [task for task in tasks if task.get("status") in TASK_SUPERSEDED_STATUSES]
+    append_change_records = [
+        {
+            "requestId": request.get("requestId"),
+            "threadKey": thread_key_from_request(request),
+            "targetPlanEpoch": request.get("targetPlanEpoch"),
+            "impactClassification": request.get("impactClassification"),
+            "supersededQueuedTaskCount": len(request.get("supersededQueuedTaskIds", [])),
+            "supersededQueuedTaskIdsCsv": csv_text(request.get("supersededQueuedTaskIds", [])),
+            "checkpointTaskCount": len(request.get("checkpointTaskIds", [])),
+            "checkpointTaskIdsCsv": csv_text(request.get("checkpointTaskIds", [])),
+            "goal": request.get("goal"),
+        }
+        for request in append_requests[-10:]
+    ]
+    inspection_records = [
+        {
+            "requestId": request.get("requestId"),
+            "threadKey": thread_key_from_request(request),
+            "goal": request.get("goal"),
+            "fusionDecision": request.get("fusionDecision"),
+        }
+        for request in inspection_requests[-10:]
+    ]
     return {
         "schemaVersion": SCHEMA_VERSION,
         "generator": generator,
@@ -6592,32 +7082,17 @@ def build_change_summary(index: dict, task_pool: dict | None, thread_state: dict
         "supersededQueuedTaskCount": len(superseded_tasks),
         "contextRotWarningCount": len((thread_state or {}).get("contextRotWarnings", [])),
         "recentAppendChanges": bounded(
-            [
-                {
-                    "requestId": request.get("requestId"),
-                    "threadKey": thread_key_from_request(request),
-                    "targetPlanEpoch": request.get("targetPlanEpoch"),
-                    "impactClassification": request.get("impactClassification"),
-                    "supersededQueuedTaskIds": request.get("supersededQueuedTaskIds", []),
-                    "checkpointTaskIds": request.get("checkpointTaskIds", []),
-                    "goal": request.get("goal"),
-                }
-                for request in append_requests[-10:]
-            ],
+            append_change_records,
             policy_summary["threading"]["maxRecentChanges"],
         ),
+        "appendChangeColumns": APPEND_CHANGE_COLUMNS,
+        "appendChangeRecords": bounded(align_flat_records(append_change_records, APPEND_CHANGE_COLUMNS), policy_summary["threading"]["maxRecentChanges"]),
         "recentInspectionOverlays": bounded(
-            [
-                {
-                    "requestId": request.get("requestId"),
-                    "threadKey": thread_key_from_request(request),
-                    "goal": request.get("goal"),
-                    "fusionDecision": request.get("fusionDecision"),
-                }
-                for request in inspection_requests[-10:]
-            ],
+            inspection_records,
             policy_summary["threading"]["maxRecentChanges"],
         ),
+        "inspectionOverlayColumns": INSPECTION_OVERLAY_COLUMNS,
+        "inspectionOverlayRecords": bounded(align_flat_records(inspection_records, INSPECTION_OVERLAY_COLUMNS), policy_summary["threading"]["maxRecentChanges"]),
         "supersededQueuedTaskIds": bounded([task.get("taskId") for task in superseded_tasks], policy_summary["threading"]["maxRecentChanges"]),
         "contextRotWarnings": bounded((thread_state or {}).get("contextRotWarnings", []), policy_summary["intake"]["maxRecentThreads"]),
     }
@@ -6746,6 +7221,67 @@ def build_lineage_index(lineage_entries: list[dict], task_pool: dict | None, tas
                 "outcome": binding.get("lineage", {}).get("outcome"),
             }
         )
+    request_records = [
+        {
+            "requestId": summary.get("requestId"),
+            "taskCount": len(summary.get("taskIds") or []),
+            "taskIdsCsv": csv_text(summary.get("taskIds")),
+            "sessionCount": len(summary.get("sessionIds") or []),
+            "sessionIdsCsv": csv_text(summary.get("sessionIds")),
+            "worktreePathCount": len(summary.get("worktreePaths") or []),
+            "worktreePathsCsv": csv_text(summary.get("worktreePaths")),
+            "verificationStatusCount": len(summary.get("verificationStatuses") or []),
+            "verificationStatusesCsv": csv_text(summary.get("verificationStatuses")),
+            "outcomeCount": len(summary.get("outcomes") or []),
+            "outcomesCsv": csv_text(summary.get("outcomes")),
+            "lastEventKind": summary.get("lastEventKind"),
+            "lastEventAt": summary.get("lastEventAt"),
+        }
+        for summary in by_request.values()
+    ]
+    task_records = [
+        {
+            "taskId": summary.get("taskId"),
+            "requestCount": len(summary.get("requestIds") or []),
+            "requestIdsCsv": csv_text(summary.get("requestIds")),
+            "sessionCount": len(summary.get("sessionIds") or []),
+            "sessionIdsCsv": csv_text(summary.get("sessionIds")),
+            "worktreePath": summary.get("worktreePath"),
+            "diffSummaryJson": flat_scalar(summary.get("diffSummary")),
+            "verificationStatus": summary.get("verificationStatus"),
+            "outcomeJson": flat_scalar(summary.get("outcome")),
+            "outcomeStatus": (summary.get("outcome") or {}).get("status"),
+            "lastEventKind": summary.get("lastEventKind"),
+            "lastEventAt": summary.get("lastEventAt"),
+        }
+        for summary in by_task.values()
+    ]
+    session_records = [
+        {
+            "sessionId": session_id,
+            "lastEventKind": summary.get("kind"),
+            "lastEventAt": summary.get("timestamp"),
+            "requestId": summary.get("requestId"),
+            "taskId": summary.get("taskId"),
+            "worktreePath": summary.get("worktreePath"),
+        }
+        for session_id, summary in latest_by_session.items()
+    ]
+    active_binding_records = [
+        {
+            "bindingId": binding.get("bindingId"),
+            "requestId": binding.get("requestId"),
+            "taskId": binding.get("taskId"),
+            "bindingStatus": binding.get("status"),
+            "sessionId": binding.get("sessionId"),
+            "worktreePath": binding.get("worktreePath"),
+            "diffSummaryJson": flat_scalar(binding.get("diffSummary")),
+            "verificationStatus": binding.get("verificationStatus"),
+            "outcomeJson": flat_scalar(binding.get("outcome")),
+            "outcomeStatus": (binding.get("outcome") or {}).get("status"),
+        }
+        for binding in active_bindings
+    ]
 
     return {
         "schemaVersion": SCHEMA_VERSION,
@@ -6755,9 +7291,17 @@ def build_lineage_index(lineage_entries: list[dict], task_pool: dict | None, tas
         "lastSeq": lineage_entries[-1].get("seq") if lineage_entries else 0,
         "recentEvents": lineage_entries[-10:],
         "activeBindings": active_bindings,
+        "activeBindingColumns": LINEAGE_ACTIVE_BINDING_COLUMNS,
+        "activeBindingRecords": align_flat_records(active_binding_records, LINEAGE_ACTIVE_BINDING_COLUMNS),
         "latestByRequest": latest_by_request,
         "latestByTask": latest_by_task,
         "latestBySession": latest_by_session,
         "requests": by_request,
+        "requestColumns": LINEAGE_REQUEST_COLUMNS,
+        "requestRecords": align_flat_records(request_records, LINEAGE_REQUEST_COLUMNS),
         "tasks": by_task,
+        "taskColumns": LINEAGE_TASK_COLUMNS,
+        "taskRecords": align_flat_records(task_records, LINEAGE_TASK_COLUMNS),
+        "sessionColumns": LINEAGE_SESSION_COLUMNS,
+        "sessionRecords": align_flat_records(session_records, LINEAGE_SESSION_COLUMNS),
     }
