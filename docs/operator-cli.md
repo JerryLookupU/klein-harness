@@ -1,73 +1,26 @@
 # Operator CLI
 
-`harness-ops` is the project-local machine-first operator facade behind the public 4-command UX.
+This document now serves as a legacy/compatibility note.
 
-Canonical public wrappers:
+Canonical operator surface:
 
-- `harness-submit`
-- `harness-tasks`
-- `harness-task`
-- `harness-control`
+- `harness tasks`
+- `harness task`
+- `harness control`
+- `harness daemon run-once`
+- `harness daemon loop`
 
-`harness-ops` remains the expert/project-local surface when you want the raw operator subcommands directly.
-It is not the first thing a new user should learn.
-
-Path:
-
-- `.harness/bin/harness-ops`
-
-It reads bounded JSON summaries first and avoids model calls.
-
-## Key commands
+Examples:
 
 ```bash
-.harness/bin/harness-ops . top
-.harness/bin/harness-ops . queue
-.harness/bin/harness-ops . tasks
-.harness/bin/harness-ops . task T-003
-.harness/bin/harness-ops . request R-001
-.harness/bin/harness-ops . workers
-.harness/bin/harness-ops . daemon status
-.harness/bin/harness-ops . blockers
-.harness/bin/harness-ops . logs
-.harness/bin/harness-ops . doctor
-.harness/bin/harness-ops . watch --view top --interval 5
+harness tasks /repo
+harness task /repo T-001
+harness control /repo task T-001 status
+harness control /repo task T-001 attach
+harness control /repo task T-001 restart-from-stage queued
+harness daemon run-once /repo --skip-git-repo-check
 ```
 
-## What it reads
+Historical `.harness/bin/harness-ops` references are no longer canonical. If an older repo still has them, treat them as legacy project-local helpers, not as public runtime truth.
 
-Primary inputs:
-
-- `state/progress.json`
-- `state/queue-summary.json`
-- `state/task-summary.json`
-- `state/worker-summary.json`
-- `state/daemon-summary.json`
-- `state/todo-summary.json`
-- `state/completion-gate.json`
-- `state/guard-state.json`
-- `state/request-summary.json`
-- `state/lineage-index.json`
-- `state/log-index.json`
-- `state/policy-summary.json`
-
-## Health model
-
-`harness-ops` separates:
-
-- runtime health
-- worker-node health
-- dispatch backend state
-
-This prevents tmux liveness from being confused with scheduler health.
-
-## Daemon controls
-
-`harness-ops daemon` wraps the existing runner daemon surface:
-
-- `status`
-- `start`
-- `stop`
-- `restart`
-
-The daemon remains repo-local. Upstream triggers such as OpenClaw, shell, or cron only ask the runtime to tick; they are not the scheduler.
+See [docs/runtime-mvp.md](/Users/linzhenjie/code/claw-code/harness-architect/docs/runtime-mvp.md) for the active CLI and state model.

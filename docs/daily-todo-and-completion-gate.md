@@ -50,7 +50,7 @@ Runtime now treats this as a hard gate:
 When the completion gate is truly satisfied:
 
 - the loop becomes retire-eligible
-- the operator can archive it through `harness-control ... project archive`
+- the operator can archive it through `harness control ... task <TASK_ID> archive`
 - runtime state then reports the loop as archived / retired instead of indefinitely spinning
 
 If the gate is still open, archive must refuse instead of silently retiring the loop.

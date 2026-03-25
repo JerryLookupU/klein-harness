@@ -29,8 +29,6 @@ func main() {
 		err = runExec(os.Args[2:])
 	case "resume":
 		err = runResume(os.Args[2:])
-	case "review", "sandbox", "features":
-		err = fmt.Errorf("%s is not implemented yet; see docs/dev/openai-codex-parity-blueprint.md", os.Args[1])
 	case "-h", "--help", "help":
 		usage()
 		return
@@ -44,7 +42,7 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: kh-codex <login|instructions|exec|resume|review|sandbox|features> [args...]")
+	fmt.Fprintln(os.Stderr, "usage: kh-codex <login|instructions|exec|resume> [args...]")
 }
 
 func runLogin(args []string) error {

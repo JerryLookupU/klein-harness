@@ -20,8 +20,8 @@ Default search should stay summary-first.
 - Raw evidence: `.harness/state/runner-logs/<taskId>.log`
 - Compact handoff: `.harness/log-<taskId>.md`
 - Hot index: `.harness/state/log-index.json`
-- Operator command: `.harness/bin/harness-log-search`
-- Additive query views: `harness-query logs` and `harness-query log`
+- Operator surface: the `harness-log-search-cskill` skill or repo-local summary views
+- Historical `.harness/bin/harness-log-search` references are legacy compatibility notes only
 
 ## Compact Log Rules
 

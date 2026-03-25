@@ -259,7 +259,7 @@ func writeVerificationArtifacts(t *testing.T, root, dispatchID string, includeRe
 	if err := os.WriteFile(filepath.Join(artifactDir, "handoff.md"), []byte("reviewed handoff"), 0o644); err != nil {
 		t.Fatalf("write handoff artifact: %v", err)
 	}
-	return filepath.ToSlash(filepath.Join(".harness", "state", "artifacts", "T-1", dispatchID, "verify.json"))
+	return filepath.ToSlash(filepath.Join(".harness", "artifacts", "T-1", dispatchID, "verify.json"))
 }
 
 func upsertTask(t *testing.T, root string, task adapter.Task) {

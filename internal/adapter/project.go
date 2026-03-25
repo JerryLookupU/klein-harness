@@ -8,24 +8,31 @@ import (
 )
 
 type Paths struct {
-	Root                  string
-	HarnessDir            string
-	StateDir              string
-	EventsDir             string
-	CheckpointsDir        string
-	ArtifactsDir          string
-	EventLogPath          string
-	LeaseSummaryPath      string
-	DispatchSummaryPath   string
-	CheckpointSummaryPath string
-	CompletionGatePath    string
-	GuardStatePath        string
-	TaskPoolPath          string
-	SessionRegistryPath   string
-	RuntimePath           string
-	ThreadStatePath       string
-	ProjectMetaPath       string
-	VerificationRulesPath string
+	Root                      string
+	HarnessDir                string
+	StateDir                  string
+	EventsDir                 string
+	LogsDir                   string
+	RequestsDir               string
+	CheckpointsDir            string
+	ArtifactsDir              string
+	TmuxLogsDir               string
+	EventLogPath              string
+	QueuePath                 string
+	LeaseSummaryPath          string
+	DispatchSummaryPath       string
+	CheckpointSummaryPath     string
+	VerificationSummaryPath   string
+	TmuxSummaryPath           string
+	CompletionGatePath        string
+	GuardStatePath            string
+	TaskPoolPath              string
+	SessionRegistryPath       string
+	LegacySessionRegistryPath string
+	RuntimePath               string
+	ThreadStatePath           string
+	ProjectMetaPath           string
+	VerificationRulesPath     string
 }
 
 type CommandProfile struct {
@@ -62,6 +69,17 @@ type Task struct {
 	VerificationRuleIDs       []string        `json:"verificationRuleIds"`
 	ReviewRequired            bool            `json:"reviewRequired,omitempty"`
 	ReviewEvidencePath        string          `json:"reviewEvidencePath,omitempty"`
+	VerificationStatus        string          `json:"verificationStatus,omitempty"`
+	VerificationSummary       string          `json:"verificationSummary,omitempty"`
+	VerificationResultPath    string          `json:"verificationResultPath,omitempty"`
+	LastDispatchID            string          `json:"lastDispatchId,omitempty"`
+	LastLeaseID               string          `json:"lastLeaseId,omitempty"`
+	TmuxSession               string          `json:"tmuxSession,omitempty"`
+	TmuxLogPath               string          `json:"tmuxLogPath,omitempty"`
+	StatusReason              string          `json:"statusReason,omitempty"`
+	CompletedAt               string          `json:"completedAt,omitempty"`
+	ArchivedAt                string          `json:"archivedAt,omitempty"`
+	UpdatedAt                 string          `json:"updatedAt,omitempty"`
 	ResumeStrategy            string          `json:"resumeStrategy"`
 	PreferredResumeSessionID  string          `json:"preferredResumeSessionId"`
 	CandidateResumeSessionIDs []string        `json:"candidateResumeSessionIds"`
@@ -143,32 +161,42 @@ func Resolve(root string) (Paths, error) {
 	harnessDir := filepath.Join(absRoot, ".harness")
 	stateDir := filepath.Join(harnessDir, "state")
 	eventsDir := filepath.Join(harnessDir, "events")
+	logsDir := filepath.Join(harnessDir, "logs")
+	requestsDir := filepath.Join(harnessDir, "requests")
 	checkpointsDir := filepath.Join(harnessDir, "checkpoints")
-	artifactsDir := filepath.Join(stateDir, "artifacts")
-	for _, dir := range []string{harnessDir, stateDir, eventsDir, checkpointsDir, artifactsDir} {
+	artifactsDir := filepath.Join(harnessDir, "artifacts")
+	tmuxLogsDir := filepath.Join(logsDir, "tmux")
+	for _, dir := range []string{harnessDir, stateDir, eventsDir, logsDir, requestsDir, checkpointsDir, artifactsDir, tmuxLogsDir} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return Paths{}, err
 		}
 	}
 	return Paths{
-		Root:                  absRoot,
-		HarnessDir:            harnessDir,
-		StateDir:              stateDir,
-		EventsDir:             eventsDir,
-		CheckpointsDir:        checkpointsDir,
-		ArtifactsDir:          artifactsDir,
-		EventLogPath:          filepath.Join(eventsDir, "a2a.jsonl"),
-		LeaseSummaryPath:      filepath.Join(stateDir, "lease-summary.json"),
-		DispatchSummaryPath:   filepath.Join(stateDir, "dispatch-summary.json"),
-		CheckpointSummaryPath: filepath.Join(stateDir, "checkpoint-summary.json"),
-		CompletionGatePath:    filepath.Join(stateDir, "completion-gate.json"),
-		GuardStatePath:        filepath.Join(stateDir, "guard-state.json"),
-		TaskPoolPath:          filepath.Join(harnessDir, "task-pool.json"),
-		SessionRegistryPath:   filepath.Join(harnessDir, "session-registry.json"),
-		RuntimePath:           filepath.Join(stateDir, "runtime.json"),
-		ThreadStatePath:       filepath.Join(stateDir, "thread-state.json"),
-		ProjectMetaPath:       filepath.Join(harnessDir, "project-meta.json"),
-		VerificationRulesPath: filepath.Join(harnessDir, "verification-rules", "manifest.json"),
+		Root:                      absRoot,
+		HarnessDir:                harnessDir,
+		StateDir:                  stateDir,
+		EventsDir:                 eventsDir,
+		LogsDir:                   logsDir,
+		RequestsDir:               requestsDir,
+		CheckpointsDir:            checkpointsDir,
+		ArtifactsDir:              artifactsDir,
+		TmuxLogsDir:               tmuxLogsDir,
+		EventLogPath:              filepath.Join(eventsDir, "a2a.jsonl"),
+		QueuePath:                 filepath.Join(requestsDir, "queue.jsonl"),
+		LeaseSummaryPath:          filepath.Join(stateDir, "lease-summary.json"),
+		DispatchSummaryPath:       filepath.Join(stateDir, "dispatch-summary.json"),
+		CheckpointSummaryPath:     filepath.Join(stateDir, "checkpoint-summary.json"),
+		VerificationSummaryPath:   filepath.Join(stateDir, "verification-summary.json"),
+		TmuxSummaryPath:           filepath.Join(stateDir, "tmux-summary.json"),
+		CompletionGatePath:        filepath.Join(stateDir, "completion-gate.json"),
+		GuardStatePath:            filepath.Join(stateDir, "guard-state.json"),
+		TaskPoolPath:              filepath.Join(harnessDir, "task-pool.json"),
+		SessionRegistryPath:       filepath.Join(stateDir, "session-registry.json"),
+		LegacySessionRegistryPath: filepath.Join(harnessDir, "session-registry.json"),
+		RuntimePath:               filepath.Join(stateDir, "runtime.json"),
+		ThreadStatePath:           filepath.Join(stateDir, "thread-state.json"),
+		ProjectMetaPath:           filepath.Join(harnessDir, "project-meta.json"),
+		VerificationRulesPath:     filepath.Join(harnessDir, "verification-rules", "manifest.json"),
 	}, nil
 }
 
@@ -208,6 +236,15 @@ func LoadSessionRegistry(root string) (SessionRegistry, error) {
 	var registry SessionRegistry
 	if err := loadJSON(paths.SessionRegistryPath, &registry); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
+			if err := loadJSON(paths.LegacySessionRegistryPath, &registry); err != nil {
+				if errors.Is(err, os.ErrNotExist) {
+					return SessionRegistry{}, nil
+				}
+				return SessionRegistry{}, err
+			}
+			return registry, nil
+		}
+		if errors.Is(err, os.ErrNotExist) {
 			return SessionRegistry{}, nil
 		}
 		return SessionRegistry{}, err
@@ -243,7 +280,15 @@ func SaveSessionRegistry(root string, registry SessionRegistry) error {
 	if err != nil {
 		return err
 	}
-	return writeJSON(paths.SessionRegistryPath, registry)
+	if err := writeJSON(paths.SessionRegistryPath, registry); err != nil {
+		return err
+	}
+	if _, err := os.Stat(paths.LegacySessionRegistryPath); err == nil {
+		if err := writeJSON(paths.LegacySessionRegistryPath, registry); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func LoadProjectMeta(root string) (ProjectMeta, error) {

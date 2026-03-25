@@ -13,6 +13,7 @@ UPDATE_SHELL_RC=1
 PATH_RC_ACTION="unchanged"
 HELPERS_INSTALLED=0
 HELPER_NAMES=()
+HARNESS_INSTALLED=0
 MANAGED_GLOBAL_AGENTS_START="<!-- klein-harness managed global instructions:start -->"
 MANAGED_GLOBAL_AGENTS_END="<!-- klein-harness managed global instructions:end -->"
 MANAGED_PROFILES_START="# >>> klein-harness managed codex profiles >>>"
@@ -113,6 +114,19 @@ install_helper_scripts() {
     HELPERS_INSTALLED=1
     HELPER_NAMES+=("$helper_name")
   done
+}
+
+install_harness_binary() {
+  if ! command -v go >/dev/null 2>&1; then
+    echo "Go is not installed; skipping harness binary build. Shell wrappers can still fall back to 'go run' from the repo checkout." >&2
+    return 0
+  fi
+  mkdir -p "$BIN_DIR"
+  (
+    cd "$SCRIPT_DIR"
+    go build -o "$BIN_DIR/harness" ./cmd/harness
+  )
+  HARNESS_INSTALLED=1
 }
 
 managed_global_agents_content() {
@@ -249,7 +263,7 @@ Examples:
 Notes:
   - No skill name means install all skills under ./skills/.
   - Default destination is $CODEX_HOME/skills (or ~/.codex/skills if CODEX_HOME is not set).
-  - Helper commands are installed into the matching bin directory (default: $CODEX_HOME/bin).
+  - The canonical `harness` CLI and compatibility wrappers are installed into the matching bin directory (default: $CODEX_HOME/bin) when Go is available.
   - Managed global preferences are written to $CODEX_HOME/AGENTS.md.
   - Managed Codex profiles are written to $CODEX_HOME/config.toml.
 EOF
@@ -394,6 +408,7 @@ install_managed_global_instructions
 install_managed_codex_profiles
 
 if printf '%s\n%s\n' "${installed[*]:-}" "${existing[*]:-}" | tr ' ' '\n' | grep -qx 'klein-harness'; then
+  install_harness_binary
   install_helper_scripts
 
   if [[ "$UPDATE_SHELL_RC" -eq 1 ]]; then
@@ -440,12 +455,16 @@ if [[ ${#installed[@]} -eq 0 && "$HELPERS_INSTALLED" -eq 0 ]]; then
 fi
 
 if [[ "$HELPERS_INSTALLED" -eq 1 ]]; then
-  echo "Primary commands:"
+  if [[ "$HARNESS_INSTALLED" -eq 1 ]]; then
+    echo "Canonical CLI:"
+    echo "  - harness"
+  fi
+  echo "Compatibility wrappers:"
   echo "  - harness-submit"
   echo "  - harness-tasks"
   echo "  - harness-task"
   echo "  - harness-control"
-  echo "Compatibility shims are still installed, but the canonical UX is the 4 commands above."
+  echo "Compatibility wrappers remain installed, but the canonical runtime entrypoint is the Go `harness` CLI."
 fi
 
 echo "Managed verification hints:"
