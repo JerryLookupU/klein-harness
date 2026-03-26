@@ -21,6 +21,38 @@ func TestDefaultPacketSynthesisLoop(t *testing.T) {
 	}
 }
 
+func TestDefaultConstraintSystem(t *testing.T) {
+	root := "/repo"
+	system := DefaultConstraintSystem(root, []string{"policy_bug_rca_first", "policy_resume_state_first"})
+	if system.Mode != "two-level layered constraints" {
+		t.Fatalf("unexpected constraint mode: %+v", system)
+	}
+	if len(system.Rules) < 10 {
+		t.Fatalf("expected layered rules, got %+v", system)
+	}
+	if !strings.Contains(system.Rules[0].Source, filepath.Join(root, "prompts", "spec")) {
+		t.Fatalf("expected prompt-backed source, got %+v", system.Rules[0])
+	}
+	var hasSoft, hasHard, hasVerificationMode bool
+	for _, rule := range system.Rules {
+		if rule.Enforcement == "soft" {
+			hasSoft = true
+		}
+		if rule.Enforcement == "hard" {
+			hasHard = true
+		}
+		if rule.VerificationMode != "" {
+			hasVerificationMode = true
+		}
+	}
+	if !hasSoft || !hasHard {
+		t.Fatalf("expected both soft and hard constraints, got %+v", system.Rules)
+	}
+	if !hasVerificationMode {
+		t.Fatalf("expected at least one hard verification mode, got %+v", system.Rules)
+	}
+}
+
 func TestDefaultTopLevelPromptLoadsPromptDirectory(t *testing.T) {
 	root := t.TempDir()
 	specDir := filepath.Join(root, "prompts", "spec")

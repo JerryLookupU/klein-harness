@@ -18,8 +18,8 @@ func RestartFromStage(root, taskID, stage, reason string) (adapter.Task, error) 
 	if err != nil {
 		return adapter.Task{}, err
 	}
-	if task.TmuxSession != "" {
-		_ = tmux.KillSession(task.TmuxSession)
+	if sessionName := taskTmuxSession(root, task); sessionName != "" {
+		_ = tmux.KillSession(sessionName)
 	}
 	if err := updateTask(root, taskID, func(current *adapter.Task) {
 		current.Status = "queued"
@@ -42,8 +42,8 @@ func StopTask(root, taskID, reason string) (adapter.Task, error) {
 	if err != nil {
 		return adapter.Task{}, err
 	}
-	if task.TmuxSession != "" {
-		_ = tmux.KillSession(task.TmuxSession)
+	if sessionName := taskTmuxSession(root, task); sessionName != "" {
+		_ = tmux.KillSession(sessionName)
 	}
 	if err := updateTask(root, taskID, func(current *adapter.Task) {
 		current.Status = "blocked"
@@ -73,8 +73,8 @@ func ArchiveTask(root, taskID, reason string) (adapter.Task, error) {
 	}
 	var guard verify.GuardState
 	_, _ = state.LoadJSONIfExists(paths.GuardStatePath, &guard)
-	if task.TmuxSession != "" {
-		_ = tmux.KillSession(task.TmuxSession)
+	if sessionName := taskTmuxSession(root, task); sessionName != "" {
+		_ = tmux.KillSession(sessionName)
 	}
 	gate.Retired = true
 	gate.Status = "retired"
@@ -101,4 +101,15 @@ func ArchiveTask(root, taskID, reason string) (adapter.Task, error) {
 		return adapter.Task{}, err
 	}
 	return adapter.LoadTask(root, taskID)
+}
+
+func taskTmuxSession(root string, task adapter.Task) string {
+	if task.TmuxSession != "" {
+		return task.TmuxSession
+	}
+	session, ok, err := tmux.FindTaskSession(root, task.TaskID, "")
+	if err != nil || !ok {
+		return ""
+	}
+	return session.SessionName
 }

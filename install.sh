@@ -139,6 +139,8 @@ ${MANAGED_GLOBAL_AGENTS_START}
 - Check whether a preferred tool exists before you suggest or invoke it. If it is unavailable, say so and choose the closest verified fallback.
 - Do not guess URLs, filenames, command syntax, flags, API shapes, or config keys. Verify them from repo facts, \`--help\`, or the relevant documentation first.
 - When uncertain, prefer reading documentation or repository evidence over inference.
+- Use a fact-first, focus-first, verify-first discipline: investigate before deciding, concentrate effort on the main bounded slice, and do not claim completion without concrete evidence.
+- Before closeout, name what changed, what was verified, and what remains risky. If evidence is incomplete, prefer a blocked or follow-up outcome over a guessed success.
 
 ${MANAGED_GLOBAL_AGENTS_END}
 EOF

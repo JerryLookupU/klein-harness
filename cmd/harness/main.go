@@ -144,15 +144,19 @@ func runControl(args []string) error {
 		if err != nil {
 			return err
 		}
-		if view.Task.TmuxSession == "" {
+		sessionName := view.Task.TmuxSession
+		if sessionName == "" && view.Tmux != nil {
+			sessionName = view.Tmux.SessionName
+		}
+		if sessionName == "" {
 			return errors.New("task has no tmux session")
 		}
 		if interactiveTTY() {
-			return tmux.AttachSession(view.Task.TmuxSession)
+			return tmux.AttachSession(sessionName)
 		}
 		return writeJSON(map[string]any{
 			"taskId":        taskID,
-			"sessionName":   view.Task.TmuxSession,
+			"sessionName":   sessionName,
 			"attachCommand": view.AttachCommand,
 		})
 	case "restart-from-stage":

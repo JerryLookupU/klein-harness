@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -19,6 +20,7 @@ import (
 	"klein-harness/internal/dispatch"
 	executorcodex "klein-harness/internal/executor/codex"
 	"klein-harness/internal/lease"
+	"klein-harness/internal/orchestration"
 	"klein-harness/internal/route"
 	"klein-harness/internal/state"
 	"klein-harness/internal/tmux"
@@ -284,7 +286,7 @@ func RunOnce(root string, options RunOptions) (RunResult, error) {
 		WorkerClass:            profile.Model,
 		Cwd:                    adapter.TaskCWD(paths, task),
 		Command:                command,
-		PromptRef:              "prompts/worker-burst.md",
+		PromptRef:              "prompts/spec/apply.md",
 		Budget:                 dispatch.Budget{MaxTurns: 8, MaxMinutes: 20, MaxToolCalls: 30},
 		LeaseTTLSec:            1800,
 		RequiredSummaryVersion: decision.RequiredSummaryVersion,
@@ -360,6 +362,18 @@ func RunOnce(root string, options RunOptions) (RunResult, error) {
 		return RunResult{}, err
 	}
 
+	closeoutResult, err := verify.EnsureCloseoutArtifacts(paths.Root, task, ticket, bundle.ArtifactDir, burst.LogPath, burst.DiffStats, burst.Status, burst.Summary)
+	if err != nil {
+		return RunResult{}, err
+	}
+	if closeoutResult.Generated {
+		burst.Artifacts = append(burst.Artifacts, closeoutResult.GeneratedArtifacts...)
+		if burst.Status == "succeeded" {
+			burst.Status = closeoutResult.Status
+		}
+		burst.Summary = coalesce(closeoutResult.Summary, burst.Summary)
+	}
+
 	if violation, ok := ownedPathViolation(bundle.ArtifactDir, task.OwnedPaths); ok {
 		burst.Status = "failed"
 		burst.Summary = violation
@@ -415,7 +429,7 @@ func RunOnce(root string, options RunOptions) (RunResult, error) {
 	}
 
 	verifyStatus, verifySummary, verifyPath := deriveVerification(bundle.ArtifactDir, burst.Status, burst.Summary)
-	sessionID, err := ingestSessionBinding(paths.Root, task, bundle.ArtifactDir)
+	sessionID, err := ingestSessionBinding(paths.Root, task, bundle.ArtifactDir, burst.LogPath)
 	if err != nil {
 		return RunResult{}, err
 	}
@@ -443,21 +457,53 @@ func RunOnce(root string, options RunOptions) (RunResult, error) {
 		}
 	}
 
+	analysisLoop := shouldEnterAnalysisLoop(burst.Status, verifyStatus, followUp, verifyErr)
+	runtimeFollowUp := followUp
+	if analysisLoop {
+		runtimeFollowUp = "analysis.required"
+	}
+
 	taskStatus := burst.Status
 	switch {
 	case verifyStatus == "passed" && verifyErr == nil && followUp == "task.completed":
 		taskStatus = "completed"
-	case verifyStatus == "blocked":
-		taskStatus = "blocked"
-	case followUp == "replan.emitted" || burst.Status == "failed" || burst.Status == "timed_out":
+	case analysisLoop:
 		taskStatus = "needs_replan"
 	case verifyErr != nil:
-		taskStatus = "verified"
+		taskStatus = "blocked"
+	case verifyStatus == "blocked":
+		taskStatus = "blocked"
+	}
+	if taskStatus != "completed" && verifyErr == nil {
+		sessionRef := sessionID
+		if sessionRef == "" {
+			sessionRef = decision.ResumeSessionID
+		}
+		_, _ = verify.RecordOuterLoopMemory(paths.Root, verify.OuterLoopMemoryInput{
+			Task:                   task,
+			Ticket:                 ticket,
+			SessionID:              sessionRef,
+			BurstStatus:            burst.Status,
+			BurstSummary:           burst.Summary,
+			VerifyStatus:           verifyStatus,
+			VerifySummary:          verifySummary,
+			FollowUp:               runtimeFollowUp,
+			VerificationResultPath: verifyPath,
+			MissingArtifacts:       closeoutResult.MissingArtifacts,
+			EvidenceRefs: uniqueNonEmpty([]string{
+				verifyPath,
+				burst.LogPath,
+				filepath.Join(bundle.ArtifactDir, "worker-result.json"),
+				filepath.Join(bundle.ArtifactDir, "handoff.md"),
+				checkpointPath,
+				outcomePath,
+			}),
+		})
 	}
 	verifyCompleted := followUp == "task.completed"
 	if err := updateTask(paths.Root, task.TaskID, func(current *adapter.Task) {
 		current.Status = taskStatus
-		current.StatusReason = coalesce(followUp, burst.Summary)
+		current.StatusReason = coalesce(runtimeFollowUp, burst.Summary)
 		current.LastDispatchID = ticket.DispatchID
 		current.LastLeaseID = ""
 		current.VerificationStatus = verifyStatus
@@ -467,6 +513,14 @@ func RunOnce(root string, options RunOptions) (RunResult, error) {
 			current.PreferredResumeSessionID = sessionID
 			current.CandidateResumeSessionIDs = uniqueNonEmpty(append([]string{sessionID}, current.CandidateResumeSessionIDs...))
 			current.ResumeStrategy = "resume"
+		}
+		if analysisLoop {
+			current.PlanEpoch++
+			current.PromptStages = analysisPromptStages()
+			current.ResumeStrategy = "fresh"
+			current.PreferredResumeSessionID = ""
+			current.CandidateResumeSessionIDs = nil
+			current.CompletedAt = ""
 		}
 		current.TmuxSession = burst.SessionName
 		current.TmuxLogPath = burst.LogPath
@@ -485,7 +539,7 @@ func RunOnce(root string, options RunOptions) (RunResult, error) {
 		ResultPath: verifyPath,
 		UpdatedAt:  state.NowUTC(),
 		Completed:  verifyCompleted,
-		FollowUp:   coalesce(followUp, errorString(verifyErr)),
+		FollowUp:   coalesce(runtimeFollowUp, errorString(verifyErr)),
 	}); err != nil {
 		return RunResult{}, err
 	}
@@ -511,7 +565,7 @@ func RunOnce(root string, options RunOptions) (RunResult, error) {
 		LeaseID:       leaseRecord.LeaseID,
 		BurstStatus:   burst.Status,
 		VerifyStatus:  verifyStatus,
-		FollowUpEvent: followUp,
+		FollowUpEvent: runtimeFollowUp,
 	}, nil
 }
 
@@ -542,6 +596,29 @@ func nextRunnableTask(root string) (adapter.Task, bool, error) {
 		}
 	}
 	return adapter.Task{}, false, nil
+}
+
+func shouldEnterAnalysisLoop(burstStatus, verifyStatus, followUp string, verifyErr error) bool {
+	if verifyErr != nil {
+		return false
+	}
+	switch burstStatus {
+	case "failed", "timed_out":
+		return true
+	}
+	switch verifyStatus {
+	case "failed", "blocked":
+		return true
+	}
+	switch followUp {
+	case "replan.emitted", "task.blocked":
+		return true
+	}
+	return false
+}
+
+func analysisPromptStages() []string {
+	return append([]string{"analysis"}, orchestration.DefaultPromptStages()...)
 }
 
 func nextTaskID(tasks []adapter.Task) string {
@@ -725,19 +802,20 @@ func deriveVerification(artifactDir, burstStatus, burstSummary string) (string, 
 	}
 	payload, err := os.ReadFile(verifyPath)
 	if err != nil {
-		return "passed", "verification succeeded but evidence is missing", ""
+		return "failed", "verification artifact is missing", ""
 	}
 	var decoded map[string]any
 	if err := json.Unmarshal(payload, &decoded); err != nil {
-		return "passed", "verification completed", verifyPath
+		return "failed", "verification artifact is invalid JSON", verifyPath
 	}
 	summary := coalesce(stringValue(decoded["summary"]), burstSummary, "verification completed")
 	status := strings.ToLower(strings.TrimSpace(stringValue(decoded["status"])))
 	overall := strings.ToLower(strings.TrimSpace(stringValue(decoded["overallStatus"])))
+	result := strings.ToLower(strings.TrimSpace(stringValue(decoded["result"])))
 	switch {
-	case status == "blocked" || overall == "blocked":
+	case status == "blocked" || overall == "blocked" || result == "blocked":
 		return "blocked", summary, verifyPath
-	case status == "failed" || status == "fail" || overall == "failed" || overall == "fail":
+	case status == "failed" || status == "fail" || overall == "failed" || overall == "fail" || result == "failed" || result == "fail":
 		return "failed", summary, verifyPath
 	default:
 		return "passed", summary, verifyPath
@@ -772,6 +850,8 @@ func ownedPathViolation(artifactDir string, ownedPaths []string) (string, bool) 
 
 func stringValue(value any) string {
 	switch typed := value.(type) {
+	case nil:
+		return ""
 	case string:
 		return typed
 	default:
@@ -795,22 +875,12 @@ func coalesce(values ...string) string {
 	return ""
 }
 
-func ingestSessionBinding(root string, task adapter.Task, artifactDir string) (string, error) {
-	payload, err := os.ReadFile(filepath.Join(artifactDir, "worker-result.json"))
-	if err != nil {
-		if os.IsNotExist(err) {
-			return "", nil
-		}
-		return "", err
-	}
-	var decoded struct {
-		SessionID       string `json:"sessionId"`
-		NativeSessionID string `json:"nativeSessionId"`
-	}
-	if err := json.Unmarshal(payload, &decoded); err != nil {
-		return "", nil
-	}
-	sessionID := coalesce(decoded.NativeSessionID, decoded.SessionID)
+func ingestSessionBinding(root string, task adapter.Task, artifactDir, tmuxLogPath string) (string, error) {
+	sessionID := detectSessionID(
+		filepath.Join(artifactDir, "worker-result.json"),
+		filepath.Join(artifactDir, "last-message.txt"),
+		tmuxLogPath,
+	)
 	if sessionID == "" {
 		return "", nil
 	}
@@ -836,6 +906,39 @@ func ingestSessionBinding(root string, task adapter.Task, artifactDir string) (s
 		return "", err
 	}
 	return sessionID, nil
+}
+
+var sessionIDPatterns = []*regexp.Regexp{
+	regexp.MustCompile(`"nativeSessionId"\s*:\s*"([^"]+)"`),
+	regexp.MustCompile(`"sessionId"\s*:\s*"([^"]+)"`),
+	regexp.MustCompile(`"threadId"\s*:\s*"([^"]+)"`),
+	regexp.MustCompile(`"thread_id"\s*:\s*"([^"]+)"`),
+}
+
+func detectSessionID(paths ...string) string {
+	for _, path := range paths {
+		if strings.TrimSpace(path) == "" {
+			continue
+		}
+		payload, err := os.ReadFile(path)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			continue
+		}
+		for _, pattern := range sessionIDPatterns {
+			matches := pattern.FindAllSubmatch(payload, -1)
+			if len(matches) == 0 {
+				continue
+			}
+			value := strings.TrimSpace(string(matches[len(matches)-1][1]))
+			if value != "" {
+				return value
+			}
+		}
+	}
+	return ""
 }
 
 func upsertSession(records []adapter.SessionRecord, record adapter.SessionRecord) []adapter.SessionRecord {

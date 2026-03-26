@@ -47,3 +47,23 @@ func LoadSummary(root string) (Summary, error) {
 	}
 	return summary, nil
 }
+
+func FindTaskSession(root, taskID, preferredSession string) (SessionState, bool, error) {
+	summary, err := LoadSummary(root)
+	if err != nil {
+		return SessionState{}, false, err
+	}
+	if preferredSession != "" {
+		if session, ok := summary.Sessions[preferredSession]; ok {
+			return session, true, nil
+		}
+	}
+	if taskID != "" {
+		if latest := summary.LatestByTask[taskID]; latest != "" {
+			if session, ok := summary.Sessions[latest]; ok {
+				return session, true, nil
+			}
+		}
+	}
+	return SessionState{}, false, nil
+}

@@ -141,22 +141,45 @@ func Release(root, leaseID, causationID string, reasonCodes []string) (Record, e
 	if err != nil {
 		return Record{}, err
 	}
+	for attempt := 0; attempt < 2; attempt++ {
+		summary, err := loadSummary(paths.LeaseSummaryPath)
+		if err != nil {
+			return Record{}, err
+		}
+		record, ok := summary.Leases[leaseID]
+		if !ok {
+			return Record{}, ErrLeaseNotFound
+		}
+		if record.Status != "active" {
+			return record, nil
+		}
+		record.Status = "released"
+		record.ReleasedAt = state.NowUTC()
+		record.CausationID = causationID
+		record.ReasonCodes = reasonCodes
+		summary.Leases[leaseID] = record
+		delete(summary.ByTask, record.TaskID)
+		delete(summary.ByDispatch, record.DispatchID)
+		if _, err := state.WriteSnapshot(paths.LeaseSummaryPath, &summary, "kh-worker-supervisor", summary.Revision); err != nil {
+			if errors.Is(err, state.ErrCASConflict) {
+				continue
+			}
+			return Record{}, err
+		}
+		return record, nil
+	}
 	summary, err := loadSummary(paths.LeaseSummaryPath)
 	if err != nil {
 		return Record{}, err
 	}
-	record := summary.Leases[leaseID]
-	record.Status = "released"
-	record.ReleasedAt = state.NowUTC()
-	record.CausationID = causationID
-	record.ReasonCodes = reasonCodes
-	summary.Leases[leaseID] = record
-	delete(summary.ByTask, record.TaskID)
-	delete(summary.ByDispatch, record.DispatchID)
-	if _, err := state.WriteSnapshot(paths.LeaseSummaryPath, &summary, "kh-worker-supervisor", summary.Revision); err != nil {
-		return Record{}, err
+	record, ok := summary.Leases[leaseID]
+	if !ok {
+		return Record{}, ErrLeaseNotFound
 	}
-	return record, nil
+	if record.Status != "active" {
+		return record, nil
+	}
+	return Record{}, fmt.Errorf("%w: could not release %s after concurrent updates", state.ErrCASConflict, leaseID)
 }
 
 func RecoverStale(root, causationID string) ([]Record, error) {

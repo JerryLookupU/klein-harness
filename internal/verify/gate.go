@@ -265,9 +265,15 @@ func requiredArtifactsCheck(paths adapter.Paths, request Request, verifyEvidence
 		if ok && taskState.LatestOutcome.DispatchID == request.DispatchID {
 			artifacts := uniqueStrings(taskState.LatestOutcome.Artifacts)
 			if len(artifacts) > 0 {
-				hasVerify := pathInList(verifyEvidence.Path, artifacts)
-				hasWorkerResult := basenameInList("worker-result.json", artifacts)
-				hasHandoff := basenameInList("handoff.md", artifacts)
+				hasVerify := pathInList(verifyEvidence.Path, artifacts) && verifyEvidence.Exists
+				hasWorkerResult, err := firstArtifactWithContent(rootOrPath(paths.Root, artifacts, "worker-result.json"))
+				if err != nil {
+					return GateCheck{}, nil, err
+				}
+				hasHandoff, err := firstArtifactWithContent(rootOrPath(paths.Root, artifacts, "handoff.md"))
+				if err != nil {
+					return GateCheck{}, nil, err
+				}
 				evidenceRefs = append(evidenceRefs, artifacts...)
 				return GateCheck{
 					Name:   "requiredArtifacts",
@@ -313,6 +319,30 @@ func requiredArtifactsCheck(paths adapter.Paths, request Request, verifyEvidence
 		OK:     verifyEvidence.Exists && (hasWorkerResult || hasHandoff),
 		Detail: fmt.Sprintf("artifactDir=%s hasWorkerResult=%t hasHandoff=%t", artifactDir, hasWorkerResult, hasHandoff),
 	}, evidenceRefs, nil
+}
+
+func rootOrPath(root string, artifacts []string, base string) []string {
+	paths := make([]string, 0, len(artifacts))
+	for _, artifact := range artifacts {
+		if filepath.Base(artifact) != base {
+			continue
+		}
+		paths = append(paths, resolveEvidencePath(root, artifact))
+	}
+	return paths
+}
+
+func firstArtifactWithContent(paths []string) (bool, error) {
+	for _, path := range paths {
+		ok, err := fileHasContent(path)
+		if err != nil {
+			return false, err
+		}
+		if ok {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func inspectEvidence(root, rawPath string) (evidenceInfo, error) {

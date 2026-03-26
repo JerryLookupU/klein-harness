@@ -13,6 +13,7 @@ import (
 	"klein-harness/internal/adapter"
 	"klein-harness/internal/dispatch"
 	"klein-harness/internal/orchestration"
+	"klein-harness/internal/verify"
 )
 
 type verificationManifest struct {
@@ -28,10 +29,11 @@ type verificationRule struct {
 }
 
 type DispatchBundle struct {
-	TicketPath     string
-	WorkerSpecPath string
-	PromptPath     string
-	ArtifactDir    string
+	TicketPath        string
+	WorkerSpecPath    string
+	PromptPath        string
+	PlanningTracePath string
+	ArtifactDir       string
 }
 
 func Prepare(root string, ticket dispatch.Ticket, leaseID string) (DispatchBundle, error) {
@@ -51,6 +53,9 @@ func Prepare(root string, ticket dispatch.Ticket, leaseID string) (DispatchBundl
 	if err != nil {
 		return DispatchBundle{}, err
 	}
+	hookPlan := verify.BuildHookPlan(root, task, ticket, verifyCommands)
+	feedbackSummary, _ := verify.LoadFeedbackSummary(root)
+	taskFeedback, hasTaskFeedback := verify.CurrentTaskFeedback(feedbackSummary, task.TaskID)
 	executionCwd := adapter.TaskCWD(paths, task)
 	artifactDir := filepath.Join(paths.ArtifactsDir, task.TaskID, ticket.DispatchID)
 	if err := os.MkdirAll(artifactDir, 0o755); err != nil {
@@ -59,6 +64,7 @@ func Prepare(root string, ticket dispatch.Ticket, leaseID string) (DispatchBundl
 	ticketPath := filepath.Join(paths.StateDir, fmt.Sprintf("dispatch-ticket-%s.json", task.TaskID))
 	workerSpecPath := filepath.Join(artifactDir, "worker-spec.json")
 	promptPath := filepath.Join(paths.StateDir, fmt.Sprintf("runner-prompt-%s.md", task.TaskID))
+	planningTracePath := filepath.Join(paths.StateDir, fmt.Sprintf("planning-trace-%s.md", task.TaskID))
 	repoRole := projectMeta.RepoRole
 	if repoRole == "" {
 		repoRole = "target_repo"
@@ -92,11 +98,14 @@ func Prepare(root string, ticket dispatch.Ticket, leaseID string) (DispatchBundl
 		"ownedPaths":        unique(task.OwnedPaths),
 		"blockedPaths":      unique(task.ForbiddenPaths),
 		"taskBudget":        ticket.Budget,
-		"acceptanceMarkers": unique(task.VerificationRuleIDs),
+		"acceptanceMarkers": hookPlan.AcceptanceMarkers,
 		"verificationPlan": map[string]any{
 			"ruleIds":  unique(task.VerificationRuleIDs),
 			"commands": verifyCommands,
 		},
+		"validationHooks":   hookPlan.Hooks,
+		"learningHints":     hookPlan.LearningHints,
+		"outerLoopMemory":   taskFeedback,
 		"decisionRationale": coalesce(task.Description, task.Summary),
 		"replanTriggers": []string{
 			"verification_failed",
@@ -111,6 +120,25 @@ func Prepare(root string, ticket dispatch.Ticket, leaseID string) (DispatchBundl
 		},
 	}
 	if err := writeJSON(workerSpecPath, workerSpec); err != nil {
+		return DispatchBundle{}, err
+	}
+	packetSynthesis := orchestration.DefaultPacketSynthesisLoop(paths.Root)
+	methodology := orchestration.DefaultMethodologyContract(paths.Root, unique(ticket.ReasonCodes))
+	judgeDecision := orchestration.DefaultJudgeDecision(packetSynthesis, methodology, unique(ticket.ReasonCodes))
+	executionLoop := orchestration.DefaultExecutionLoopContract(paths.Root, unique(ticket.ReasonCodes))
+	constraintSystem := orchestration.DefaultConstraintSystem(paths.Root, unique(ticket.ReasonCodes))
+	planningTrace := orchestration.RenderPlanningTrace(
+		task.TaskID,
+		task.ThreadKey,
+		task.PlanEpoch,
+		task.ResumeStrategy,
+		task.RoutingModel,
+		task.ExecutionModel,
+		unique(task.PromptStages),
+		unique(ticket.ReasonCodes),
+		packetSynthesis,
+	)
+	if err := os.WriteFile(planningTracePath, []byte(planningTrace), 0o644); err != nil {
 		return DispatchBundle{}, err
 	}
 	dispatchTicket := map[string]any{
@@ -146,6 +174,7 @@ func Prepare(root string, ticket dispatch.Ticket, leaseID string) (DispatchBundl
 		"allowedWriteGlobs":       unique(task.OwnedPaths),
 		"blockedWriteGlobs":       unique(task.ForbiddenPaths),
 		"artifactDir":             artifactDir,
+		"planningTracePath":       planningTracePath,
 		"workerSpecPath":          workerSpecPath,
 		"workerSpec":              workerSpec,
 		"artifacts": map[string]string{
@@ -165,12 +194,21 @@ func Prepare(root string, ticket dispatch.Ticket, leaseID string) (DispatchBundl
 			"ruleIds":  unique(task.VerificationRuleIDs),
 			"commands": verifyCommands,
 		},
-		"packetSynthesis": orchestration.DefaultPacketSynthesisLoop(paths.Root),
+		"validationHooks":  hookPlan.Hooks,
+		"learningHints":    hookPlan.LearningHints,
+		"outerLoopMemory":  taskFeedback,
+		"methodology":      methodology,
+		"judgeDecision":    judgeDecision,
+		"executionLoop":    executionLoop,
+		"constraintSystem": constraintSystem,
+		"packetSynthesis":  packetSynthesis,
 		"runtimeRefs": mergeStringMaps(
 			map[string]string{
-				"promptRef":  ticket.PromptRef,
-				"promptPath": promptPath,
-				"workerSpec": workerSpecPath,
+				"promptRef":       ticket.PromptRef,
+				"promptPath":      promptPath,
+				"workerSpec":      workerSpecPath,
+				"planningTrace":   planningTracePath,
+				"feedbackSummary": filepath.Join(paths.StateDir, "feedback-summary.json"),
 			},
 			orchestration.PromptRefs(paths.Root),
 		),
@@ -178,15 +216,21 @@ func Prepare(root string, ticket dispatch.Ticket, leaseID string) (DispatchBundl
 	if err := writeJSON(ticketPath, dispatchTicket); err != nil {
 		return DispatchBundle{}, err
 	}
-	prompt := buildPrompt(ticketPath, workerSpecPath, artifactDir, task, ticket)
+	var taskFeedbackPtr *verify.TaskFeedbackSummary
+	if hasTaskFeedback {
+		copy := taskFeedback
+		taskFeedbackPtr = &copy
+	}
+	prompt := buildPrompt(ticketPath, workerSpecPath, planningTracePath, artifactDir, filepath.Join(paths.StateDir, "feedback-summary.json"), task, ticket, packetSynthesis, hookPlan, taskFeedbackPtr, constraintSystem)
 	if err := os.WriteFile(promptPath, []byte(prompt), 0o644); err != nil {
 		return DispatchBundle{}, err
 	}
 	return DispatchBundle{
-		TicketPath:     ticketPath,
-		WorkerSpecPath: workerSpecPath,
-		PromptPath:     promptPath,
-		ArtifactDir:    artifactDir,
+		TicketPath:        ticketPath,
+		WorkerSpecPath:    workerSpecPath,
+		PromptPath:        promptPath,
+		PlanningTracePath: planningTracePath,
+		ArtifactDir:       artifactDir,
 	}, nil
 }
 
@@ -228,16 +272,18 @@ func verificationCommands(path string, ruleIDs []string) ([]map[string]any, erro
 	return commands, nil
 }
 
-func buildPrompt(ticketPath, workerSpecPath, artifactDir string, task adapter.Task, ticket dispatch.Ticket) string {
+func buildPrompt(ticketPath, workerSpecPath, planningTracePath, artifactDir, feedbackSummaryPath string, task adapter.Task, ticket dispatch.Ticket, packetSynthesis orchestration.PacketSynthesisLoop, hookPlan verify.HookPlan, taskFeedback *verify.TaskFeedbackSummary, constraintSystem orchestration.ConstraintSystem) string {
 	routePolicyTags := policyTags(ticket.ReasonCodes)
 	lines := []string{
 		"You are the Klein worker for exactly one bound task inside a repo-local closed-loop runtime.",
 		"",
-		"Read order:",
+		"Required reads before execution:",
 		fmt.Sprintf("1. Read the immutable dispatch ticket first: %s", ticketPath),
 		fmt.Sprintf("2. Read the task-local worker spec: %s", workerSpecPath),
-		"3. If task-local artifacts already exist, read worker-result.json, verify.json, handoff.md, and referenced compact handoff logs.",
-		"4. Read only the files explicitly referenced by the ticket before expanding your search.",
+		fmt.Sprintf("3. Read the planning trace for the visible B3Ehive packet-synthesis contract: %s", planningTracePath),
+		"4. If task-local artifacts already exist, read worker-result.json, verify.json, handoff.md, and referenced compact handoff logs.",
+		"5. If feedback-summary exists and this task has recent failures, read only the current task's recent 3 high-severity failures before re-execution.",
+		"6. After those reads, move to execution in owned paths. Do not keep expanding into prompt docs unless blocked on artifact format or verification wording.",
 		"",
 		"Hard authority rules:",
 		"- Never create or mutate thread keys, request ids, task ids, plan epochs, leases, or global `.harness/state/*` ledgers.",
@@ -248,17 +294,84 @@ func buildPrompt(ticketPath, workerSpecPath, artifactDir string, task adapter.Ta
 		"- Never merge, rebase, push, archive, delete branches, or delete worktrees.",
 		"- Never decide that the loop is complete. You may only decide the terminal outcome of this worker run.",
 		"",
-		"Execution style:",
+		"Execution defaults:",
 		"- Fix root causes, not symptoms.",
 		"- Keep changes minimal, focused, and consistent with the existing codebase.",
 		"- Read a file before editing it.",
 		"- Before each meaningful tool/action group, briefly state your immediate intent.",
-		"- Follow the task-local loop in order: context assembly -> targeted research -> refine worker-spec understanding -> execute -> verify -> handoff.",
-		"- Do not skip directly from the request text to edits when the referenced files have not been read yet.",
-		"- The outer runtime already owns submit -> route -> dispatch. Do not recreate a second outer orchestrator inside this task.",
-		"- If bounded packet synthesis is required inside this task, keep it task-local: 3 candidate worker-spec refinements, 1 judge, no new global task set.",
+		"- Treat the three required reads above as enough context for the normal case.",
+		"- Use the planning trace as context, not as a request to run a second planning pass.",
+		"- Do not skip directly from the request text to edits before reading the required inputs.",
+		"- The outer runtime already owns submit -> route -> dispatch. Do not recreate planning or orchestration inside this task unless the ticket is internally inconsistent.",
 		"",
+		"Visible orchestration layer for this dispatch:",
+		fmt.Sprintf("- packetSynthesisMode: metadata-backed B3Ehive (%d planners + 1 judge)", packetSynthesis.PlannerCount),
+		"- observableRuntimeBehavior: one dispatch ticket + one worker execution; planner/judge roles are persisted as planning metadata for now",
 	}
+	for _, planner := range packetSynthesis.Planners {
+		lines = append(lines, fmt.Sprintf("- planner: %s | %s | %s", planner.ID, planner.Name, planner.Focus))
+	}
+	lines = append(lines,
+		fmt.Sprintf("- judge: %s | %s | %s", packetSynthesis.Judge.ID, packetSynthesis.Judge.Name, packetSynthesis.Judge.Focus),
+		fmt.Sprintf("- planningTracePath: %s", planningTracePath),
+		"",
+		"Visible execution / validation loop for this dispatch:",
+		"- executionLoopMode: qiushi execution / validation loop",
+		fmt.Sprintf("- executionLoopSkill: %s", filepath.Join("skills", "qiushi-execution", "SKILL.md")),
+		"- executionLoopPhases: investigate -> execute -> verify -> closeout -> analysis -> re-execute",
+		"- executionLoopRule: if verify or closeout fails, return to analysis instead of faking completion",
+		"",
+	)
+	if taskFeedback != nil && len(taskFeedback.RecentFailures) > 0 {
+		lines = append(lines,
+			"Outer-loop memory from verify/error sidecar:",
+			fmt.Sprintf("- feedbackSummaryPath: %s", feedbackSummaryPath),
+			fmt.Sprintf("- latestFailureType: %s", taskFeedback.LatestFeedbackType),
+			fmt.Sprintf("- latestFailureMessage: %s", taskFeedback.LatestMessage),
+		)
+		if taskFeedback.LatestThinkingSummary != "" {
+			lines = append(lines, fmt.Sprintf("- latestThinkingSummary: %s", taskFeedback.LatestThinkingSummary))
+		}
+		if taskFeedback.LatestNextAction != "" {
+			lines = append(lines, fmt.Sprintf("- latestNextAction: %s", taskFeedback.LatestNextAction))
+		}
+		lines = append(lines, "- recentFailures: read these reminders instead of scanning the full feedback log")
+		for _, failure := range taskFeedback.RecentFailures {
+			lines = append(lines, fmt.Sprintf("  - %s | %s | %s | %s", failure.ID, failure.Step, failure.FeedbackType, failure.Message))
+			if failure.ThinkingSummary != "" {
+				lines = append(lines, fmt.Sprintf("    thought: %s", failure.ThinkingSummary))
+			}
+			if failure.NextAction != "" {
+				lines = append(lines, fmt.Sprintf("    next: %s", failure.NextAction))
+			}
+		}
+		lines = append(lines, "")
+	}
+	lines = append(lines, "Soft constraints appended after the base prompt:")
+	for _, rule := range constraintSystem.Rules {
+		if rule.Enforcement != "soft" {
+			continue
+		}
+		if rule.Layer != "execution" && rule.Layer != "verification" && rule.Layer != "learning" {
+			continue
+		}
+		lines = append(lines, fmt.Sprintf("- [%s/%s/%s/%s] %s", rule.Layer, rule.Category, rule.Enforcement, rule.Level, rule.Rule))
+	}
+	lines = append(lines, "", "Hard constraints verified item-by-item by runtime / verify:")
+	for _, rule := range constraintSystem.Rules {
+		if rule.Enforcement != "hard" {
+			continue
+		}
+		if rule.Layer != "execution" && rule.Layer != "verification" && rule.Layer != "runtime" {
+			continue
+		}
+		mode := rule.VerificationMode
+		if mode == "" {
+			mode = "runtime_gate"
+		}
+		lines = append(lines, fmt.Sprintf("- [%s/%s/%s/%s] %s | check=%s", rule.Layer, rule.Category, rule.Enforcement, rule.Level, rule.Rule, mode))
+	}
+	lines = append(lines, "")
 	if len(routePolicyTags) > 0 {
 		lines = append(lines,
 			"Policy guardrails from route reasonCodes:",
@@ -288,6 +401,28 @@ func buildPrompt(ticketPath, workerSpecPath, artifactDir string, task adapter.Ta
 		lines = append(lines, "")
 	}
 	lines = append(lines,
+		"On-demand references only when blocked on format:",
+		fmt.Sprintf("- methodologyGuide: %s", filepath.Join("prompts", "spec", "methodology.md")),
+		fmt.Sprintf("- applyWorkflow: %s", filepath.Join("prompts", "spec", "apply.md")),
+		fmt.Sprintf("- verifyWorkflow: %s", filepath.Join("prompts", "spec", "verify.md")),
+		fmt.Sprintf("- workerResultGuide: %s", filepath.Join("prompts", "spec", "worker-result.md")),
+		"",
+		"Hookified verification flow:",
+	)
+	for _, hook := range hookPlan.Hooks {
+		lines = append(lines, fmt.Sprintf("- %s | event=%s | action=%s | status=%s", hook.Name, hook.Event, hook.Action, hook.Status))
+		for _, item := range hook.Checklist {
+			lines = append(lines, fmt.Sprintf("  - %s: %s (%s)", item.ID, item.Title, item.Status))
+		}
+	}
+	if len(hookPlan.LearningHints) > 0 {
+		lines = append(lines, "", "Learned reminders:")
+		for _, hint := range hookPlan.LearningHints {
+			lines = append(lines, "- "+hint)
+		}
+	}
+	lines = append(lines,
+		"",
 		"Verification:",
 		"- Run verify commands from the dispatch ticket in order.",
 		"- Start with the narrowest relevant validation, then broader checks when required.",
@@ -295,6 +430,7 @@ func buildPrompt(ticketPath, workerSpecPath, artifactDir string, task adapter.Ta
 		"- A noop completion is valid only when acceptance is already satisfied and verify.json records concrete evidence for that claim.",
 		"- Do not claim completion without command or file evidence that supports the claim.",
 		"- When the run changes multiple files or touches high-risk control-plane surfaces, perform a short review pass and record the findings in verify.json or handoff.md.",
+		"- Before exit, if any required closeout artifact is missing, stop editing and write the missing artifact first.",
 		"",
 		"Required artifacts before exit:",
 		fmt.Sprintf("- %s", workerSpecPath),
@@ -320,22 +456,6 @@ func buildPrompt(ticketPath, workerSpecPath, artifactDir string, task adapter.Ta
 		fmt.Sprintf("- reasonCodes: %s", strings.Join(unique(ticket.ReasonCodes), ", ")),
 		fmt.Sprintf("- policyTags: %s", strings.Join(routePolicyTags, ", ")),
 		fmt.Sprintf("- promptRef: %s", ticket.PromptRef),
-		fmt.Sprintf("- promptDir: %s", filepath.Join("prompts", "spec")),
-		fmt.Sprintf("- runtimeReadme: %s", filepath.Join("prompts", "spec", "README.md")),
-		fmt.Sprintf("- orchestratorPrompt: %s", filepath.Join("prompts", "spec", "orchestrator.md")),
-		fmt.Sprintf("- packetWorkflow: %s", filepath.Join("prompts", "spec", "propose.md")),
-		fmt.Sprintf("- orchestrationPacketGuide: %s", filepath.Join("prompts", "spec", "packet.md")),
-		fmt.Sprintf("- tasksGuide: %s", filepath.Join("prompts", "spec", "tasks.md")),
-		fmt.Sprintf("- workerSpecGuide: %s", filepath.Join("prompts", "spec", "worker-spec.md")),
-		fmt.Sprintf("- dispatchTicketGuide: %s", filepath.Join("prompts", "spec", "dispatch-ticket.md")),
-		fmt.Sprintf("- workerResultGuide: %s", filepath.Join("prompts", "spec", "worker-result.md")),
-		fmt.Sprintf("- applyWorkflow: %s", filepath.Join("prompts", "spec", "apply.md")),
-		fmt.Sprintf("- verifyWorkflow: %s", filepath.Join("prompts", "spec", "verify.md")),
-		fmt.Sprintf("- archiveWorkflow: %s", filepath.Join("prompts", "spec", "archive.md")),
-		fmt.Sprintf("- plannerArchitecture: %s", filepath.Join("prompts", "spec", "planner-architecture.md")),
-		fmt.Sprintf("- plannerDelivery: %s", filepath.Join("prompts", "spec", "planner-delivery.md")),
-		fmt.Sprintf("- plannerRisk: %s", filepath.Join("prompts", "spec", "planner-risk.md")),
-		fmt.Sprintf("- judgePrompt: %s", filepath.Join("prompts", "spec", "judge.md")),
 		"",
 		"Final response:",
 		"- Be brief.",

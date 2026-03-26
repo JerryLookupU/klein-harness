@@ -48,6 +48,7 @@ Installed skills:
 
 - `klein-harness`
 - `blueprint-architect`
+- `qiushi-execution`
 - `systematic-debugging`
 - `harness-log-search-cskill`
 - `markdown-fetch`
@@ -140,6 +141,12 @@ Klein does not implement a Hookify runtime. The old dotfiles intent is mapped in
 | continue / resume | `policy_resume_state_first` + state/log/skill-first resume flow |
 | verify-before-stop | prompt evidence rules + runtime completion gate |
 | review-before-done | review-required metadata + runtime review evidence gate |
+| methodology discipline | qiushi-inspired fact-first / focus-first / verify-first mapping in prompts, planning trace, and managed AGENTS guidance |
+
+Qiushi-inspired design mapping is documented in [docs/qiushi-integration.md](/Users/linzhenjie/code/claw-code/harness-architect/docs/qiushi-integration.md).
+Current role split:
+- `b3e` / B3Ehive = orchestration and packet convergence
+- `qiushi-execution` = execution / validation loop discipline
 
 ## Tests
 
