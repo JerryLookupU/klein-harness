@@ -1,6 +1,10 @@
 package orchestration
 
-import "testing"
+import (
+	"testing"
+
+	"klein-harness/internal/adapter"
+)
 
 func TestDefaultSOPRegistryLookup(t *testing.T) {
 	registry := DefaultSOPRegistry()
@@ -23,5 +27,24 @@ func TestClassifyTaskFamily(t *testing.T) {
 	family, sopID = ClassifyTaskFamily("feature", "实现需求分析、接口设计、模块开发和联调测试", nil)
 	if family != TaskFamilyDevelopmentTask || sopID != SOPDevelopmentTaskV1 {
 		t.Fatalf("expected development task classification, got family=%s sop=%s", family, sopID)
+	}
+}
+
+func TestCompileFlowForTaskUsesRegistryAndPreservesDevelopmentFamily(t *testing.T) {
+	flow := CompileFlowForTask("/repo", adapter.Task{
+		TaskID:      "T-bug",
+		Kind:        "bugfix",
+		TaskFamily:  string(TaskFamilyBugfixSmall),
+		SOPID:       SOPDevelopmentTaskV1,
+		Title:       "Fix runtime drift",
+		Summary:     "Fix runtime drift",
+		OwnedPaths:  []string{"internal/runtime/**"},
+		Description: "Only touch runtime submit plumbing",
+	})
+	if flow.SOPID != SOPDevelopmentTaskV1 || flow.Family != TaskFamilyBugfixSmall {
+		t.Fatalf("expected registry-driven development flow preserving family, got %+v", flow)
+	}
+	if !flow.SharedFlowContext.DirectPass || len(flow.ExecutionTasks) != 1 {
+		t.Fatalf("expected bugfix family to use direct pass, got %+v", flow)
 	}
 }

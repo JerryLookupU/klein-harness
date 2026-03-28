@@ -39,3 +39,22 @@ func TestCompileRepeatedEntityCorpus(t *testing.T) {
 		t.Fatalf("unexpected first output target: %s", got)
 	}
 }
+
+func TestCompileRepeatedEntityCorpusSingleEntityUsesDirectPass(t *testing.T) {
+	task := adapter.Task{
+		TaskID:      "T-102",
+		ThreadKey:   "thread-102",
+		TaskFamily:  string(TaskFamilyRepeatedEntityCorpus),
+		SOPID:       SOPRepeatedEntityCorpusV1,
+		Title:       "生成单对象资料",
+		Summary:     "在 rundata/programmers 中生成 1 位程序员 markdown 文档，每个人不少于 2000 字",
+		Description: "名单：艾伦·图灵",
+	}
+	flow := CompileRepeatedEntityCorpus("/repo", task)
+	if !flow.SharedFlowContext.DirectPass || len(flow.ExecutionTasks) != 1 {
+		t.Fatalf("expected single-entity corpus to use direct pass, got %+v", flow)
+	}
+	if flow.ExecutionTasks[0].BatchLabel != "direct-pass" {
+		t.Fatalf("expected direct-pass batch label, got %+v", flow.ExecutionTasks[0])
+	}
+}

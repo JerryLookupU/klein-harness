@@ -63,12 +63,18 @@ type SharedFlowContext struct {
 	ScopeRef        string     `json:"scopeRef,omitempty"`
 	ModulePlanRef   string     `json:"modulePlanRef,omitempty"`
 	InterfaceRef    string     `json:"interfaceRef,omitempty"`
+	TaskGraphRef    string     `json:"taskGraphRef,omitempty"`
+	CompiledPhases  []string   `json:"compiledPhases,omitempty"`
+	DirectPass      bool       `json:"directPass,omitempty"`
 	VerifyPlanRef   string     `json:"verifyPlanRef,omitempty"`
 	BoundarySummary []string   `json:"boundarySummary,omitempty"`
 }
 
 type SliceLocalContext struct {
 	ExecutionSliceID    string   `json:"executionSliceId,omitempty"`
+	SliceMode           string   `json:"sliceMode,omitempty"`
+	Sequence            int      `json:"sequence,omitempty"`
+	TotalSlices         int      `json:"totalSlices,omitempty"`
 	Title               string   `json:"title,omitempty"`
 	Summary             string   `json:"summary,omitempty"`
 	AllowedWriteGlobs   []string `json:"allowedWriteGlobs,omitempty"`
@@ -82,13 +88,24 @@ type RuntimeControlContext struct {
 	TaskID              string `json:"taskId,omitempty"`
 	DispatchID          string `json:"dispatchId,omitempty"`
 	LeaseID             string `json:"leaseId,omitempty"`
+	ExecutionSliceID    string `json:"executionSliceId,omitempty"`
+	AcceptedPacketID    string `json:"acceptedPacketId,omitempty"`
+	ResumeSessionID     string `json:"resumeSessionId,omitempty"`
 	AcceptedPacketPath  string `json:"acceptedPacketPath,omitempty"`
 	TaskContractPath    string `json:"taskContractPath,omitempty"`
+	TaskGraphPath       string `json:"taskGraphPath,omitempty"`
+	ContextLayersPath   string `json:"contextLayersPath,omitempty"`
+	RequestContextPath  string `json:"requestContextPath,omitempty"`
+	RuntimeContextPath  string `json:"runtimeContextPath,omitempty"`
+	VerifySkeletonPath  string `json:"verifySkeletonPath,omitempty"`
+	HandoffContractPath string `json:"handoffContractPath,omitempty"`
+	TakeoverPath        string `json:"takeoverPath,omitempty"`
 	SessionRegistryPath string `json:"sessionRegistryPath,omitempty"`
 	ArtifactDir         string `json:"artifactDir,omitempty"`
 }
 
 type ContextLayers struct {
+	SchemaVersion  string                `json:"schemaVersion"`
 	Request        RequestContext        `json:"request"`
 	SharedFlow     SharedFlowContext     `json:"sharedFlow"`
 	SliceLocal     SliceLocalContext     `json:"sliceLocal"`
@@ -108,22 +125,74 @@ type VerifySkeleton struct {
 	DispatchID        string        `json:"dispatchId,omitempty"`
 	TaskFamily        TaskFamily    `json:"taskFamily,omitempty"`
 	SOPID             string        `json:"sopId,omitempty"`
+	ExecutionSliceID  string        `json:"executionSliceId,omitempty"`
+	ContextLayersPath string        `json:"contextLayersPath,omitempty"`
+	HandoffContract   string        `json:"handoffContractPath,omitempty"`
+	ProgramOwns       []string      `json:"programOwns,omitempty"`
 	RequiredArtifacts []string      `json:"requiredArtifacts,omitempty"`
 	Checks            []VerifyCheck `json:"checks,omitempty"`
 	Notes             []string      `json:"notes,omitempty"`
 }
 
 type ContinuationProtocol struct {
-	SchemaVersion         string   `json:"schemaVersion"`
-	TaskID                string   `json:"taskId,omitempty"`
-	DispatchID            string   `json:"dispatchId,omitempty"`
-	SharedFlowContextPath string   `json:"sharedFlowContextPath,omitempty"`
-	SliceContextPath      string   `json:"sliceContextPath,omitempty"`
-	VerifySkeletonPath    string   `json:"verifySkeletonPath,omitempty"`
-	HandoffPath           string   `json:"handoffPath,omitempty"`
-	SessionRegistryPath   string   `json:"sessionRegistryPath,omitempty"`
-	AllowedWriteGlobs     []string `json:"allowedWriteGlobs,omitempty"`
-	ForbiddenWriteGlobs   []string `json:"forbiddenWriteGlobs,omitempty"`
+	SchemaVersion         string     `json:"schemaVersion"`
+	ProtocolID            string     `json:"protocolId,omitempty"`
+	TaskID                string     `json:"taskId,omitempty"`
+	DispatchID            string     `json:"dispatchId,omitempty"`
+	TaskFamily            TaskFamily `json:"taskFamily,omitempty"`
+	SOPID                 string     `json:"sopId,omitempty"`
+	ExecutionSliceID      string     `json:"executionSliceId,omitempty"`
+	ResumeStrategy        string     `json:"resumeStrategy,omitempty"`
+	ContextLayersPath     string     `json:"contextLayersPath,omitempty"`
+	RequestContextPath    string     `json:"requestContextPath,omitempty"`
+	RuntimeContextPath    string     `json:"runtimeContextPath,omitempty"`
+	SharedFlowContextPath string     `json:"sharedFlowContextPath,omitempty"`
+	SliceContextPath      string     `json:"sliceContextPath,omitempty"`
+	TaskContractPath      string     `json:"taskContractPath,omitempty"`
+	TaskGraphPath         string     `json:"taskGraphPath,omitempty"`
+	AcceptedPacketPath    string     `json:"acceptedPacketPath,omitempty"`
+	VerifySkeletonPath    string     `json:"verifySkeletonPath,omitempty"`
+	HandoffContractPath   string     `json:"handoffContractPath,omitempty"`
+	HandoffPath           string     `json:"handoffPath,omitempty"`
+	SessionRegistryPath   string     `json:"sessionRegistryPath,omitempty"`
+	ReadOrder             []string   `json:"readOrder,omitempty"`
+	RequiredArtifacts     []string   `json:"requiredArtifacts,omitempty"`
+	AllowedWriteGlobs     []string   `json:"allowedWriteGlobs,omitempty"`
+	ForbiddenWriteGlobs   []string   `json:"forbiddenWriteGlobs,omitempty"`
+}
+
+type HandoffSection struct {
+	ID          string `json:"id"`
+	Title       string `json:"title"`
+	Description string `json:"description,omitempty"`
+	Required    bool   `json:"required"`
+}
+
+type HandoffContract struct {
+	SchemaVersion      string           `json:"schemaVersion"`
+	TaskID             string           `json:"taskId,omitempty"`
+	DispatchID         string           `json:"dispatchId,omitempty"`
+	TaskFamily         TaskFamily       `json:"taskFamily,omitempty"`
+	SOPID              string           `json:"sopId,omitempty"`
+	ExecutionSliceID   string           `json:"executionSliceId,omitempty"`
+	ContextLayersPath  string           `json:"contextLayersPath,omitempty"`
+	VerifySkeletonPath string           `json:"verifySkeletonPath,omitempty"`
+	RequiredArtifacts  []string         `json:"requiredArtifacts,omitempty"`
+	Sections           []HandoffSection `json:"sections,omitempty"`
+	ResumeInstructions []string         `json:"resumeInstructions,omitempty"`
+}
+
+type TaskGraph struct {
+	SchemaVersion         string          `json:"schemaVersion"`
+	TaskID                string          `json:"taskId,omitempty"`
+	DispatchID            string          `json:"dispatchId,omitempty"`
+	TaskFamily            TaskFamily      `json:"taskFamily,omitempty"`
+	SOPID                 string          `json:"sopId,omitempty"`
+	DirectPass            bool            `json:"directPass,omitempty"`
+	Phases                []string        `json:"phases,omitempty"`
+	ExecutionTasks        []ExecutionTask `json:"executionTasks,omitempty"`
+	SharedFlowContextPath string          `json:"sharedFlowContextPath,omitempty"`
+	Notes                 []string        `json:"notes,omitempty"`
 }
 
 type RepeatedEntitySharedSpec struct {

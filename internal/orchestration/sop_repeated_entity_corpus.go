@@ -40,6 +40,7 @@ func CompileRepeatedEntityCorpus(root string, task adapter.Task) CompiledFlow {
 	vars := ExtractRepeatedEntityVariableInputs(task, shared)
 	tasks := CompileRepeatedEntityTaskGraph(task, shared, vars)
 	sharedCtx := buildRepeatedEntitySharedContext(task, shared, vars)
+	directPass := len(tasks) == 1
 	return CompiledFlow{
 		Family:                 TaskFamilyRepeatedEntityCorpus,
 		SOPID:                  SOPRepeatedEntityCorpusV1,
@@ -51,7 +52,9 @@ func CompileRepeatedEntityCorpus(root string, task adapter.Task) CompiledFlow {
 			TaskFamily:      TaskFamilyRepeatedEntityCorpus,
 			SOPID:           SOPRepeatedEntityCorpusV1,
 			Summary:         strings.TrimSpace(coalesce(task.Description, task.Summary, task.Title)),
-			BoundarySummary: uniqueStrings(append([]string{"程序负责冻结 shared spec 和 variable inputs", "worker 只处理当前 entity slice 或 closeout slice"}, task.OwnedPaths...)),
+			CompiledPhases:  []string{"extract_shared_spec", "extract_variable_inputs", "compile_task_graph", "compile_worker_prompt", "programmatic_verify", "closeout"},
+			DirectPass:      directPass,
+			BoundarySummary: uniqueStrings(append(append([]string{"程序负责冻结 shared spec 和 variable inputs", "worker 只处理当前 entity slice 或 closeout slice"}, repeatedEntityBoundaryNotes(directPass)...), task.OwnedPaths...)),
 		},
 	}
 }
@@ -113,6 +116,23 @@ func ExtractRepeatedEntityVariableInputs(task adapter.Task, spec RepeatedEntityS
 }
 
 func CompileRepeatedEntityTaskGraph(task adapter.Task, spec RepeatedEntitySharedSpec, vars RepeatedEntityVariableInputs) []ExecutionTask {
+	if len(vars.Entities) == 1 {
+		entity := vars.Entities[0]
+		return []ExecutionTask{{
+			ID:            fmt.Sprintf("%s.slice.1", task.TaskID),
+			Title:         "单对象直通",
+			Summary:       fmt.Sprintf("完成 `%s` 的正文、索引和 verify 收口。", entity.EntityLabel),
+			TaskGroupID:   task.TaskID + ".group",
+			BatchLabel:    "direct-pass",
+			EntityBatch:   []string{entity.EntityLabel},
+			OutputTargets: uniqueStrings(append([]string{entity.TargetFile, spec.IndexFilename}, spec.RequiredSupportFiles...)),
+			DoneCriteria: uniqueStrings([]string{
+				fmt.Sprintf("完成 `%s` 的正文", entity.EntityLabel),
+				fmt.Sprintf("满足不少于 %d 字", spec.MinChars),
+				"closeout artifacts 完整",
+			}),
+		}}
+	}
 	tasks := make([]ExecutionTask, 0, len(vars.Entities)+1)
 	for i, entity := range vars.Entities {
 		tasks = append(tasks, ExecutionTask{
@@ -140,6 +160,13 @@ func CompileRepeatedEntityTaskGraph(task adapter.Task, spec RepeatedEntityShared
 		DoneCriteria:  uniqueStrings([]string{"closeout artifacts 完整", "programmatic verify 完整"}),
 	})
 	return tasks
+}
+
+func repeatedEntityBoundaryNotes(directPass bool) []string {
+	if !directPass {
+		return nil
+	}
+	return []string{"当前任务启用 single slice direct pass"}
 }
 
 func buildRepeatedEntitySharedContext(task adapter.Task, spec RepeatedEntitySharedSpec, vars RepeatedEntityVariableInputs) *SharedTaskGroupContext {

@@ -2,6 +2,7 @@ package orchestration
 
 func BuildContextLayers(request RequestContext, shared SharedFlowContext, slice SliceLocalContext, control RuntimeControlContext) ContextLayers {
 	return ContextLayers{
+		SchemaVersion:  "kh.context-layers.v1",
 		Request:        request,
 		SharedFlow:     shared,
 		SliceLocal:     slice,
@@ -9,30 +10,104 @@ func BuildContextLayers(request RequestContext, shared SharedFlowContext, slice 
 	}
 }
 
-func BuildContinuationProtocol(taskID, dispatchID, sharedFlowContextPath, sliceContextPath, verifySkeletonPath, handoffPath, sessionRegistryPath string, allowed, forbidden []string) ContinuationProtocol {
+type ContinuationProtocolInput struct {
+	TaskID                string
+	DispatchID            string
+	TaskFamily            TaskFamily
+	SOPID                 string
+	ExecutionSliceID      string
+	ResumeStrategy        string
+	ContextLayersPath     string
+	RequestContextPath    string
+	RuntimeContextPath    string
+	SharedFlowContextPath string
+	SliceContextPath      string
+	TaskContractPath      string
+	TaskGraphPath         string
+	AcceptedPacketPath    string
+	VerifySkeletonPath    string
+	HandoffContractPath   string
+	HandoffPath           string
+	SessionRegistryPath   string
+	ReadOrder             []string
+	RequiredArtifacts     []string
+	AllowedWriteGlobs     []string
+	ForbiddenWriteGlobs   []string
+}
+
+func BuildContinuationProtocol(input ContinuationProtocolInput) ContinuationProtocol {
 	return ContinuationProtocol{
 		SchemaVersion:         "kh.multi-session-continuation.v1",
-		TaskID:                taskID,
-		DispatchID:            dispatchID,
-		SharedFlowContextPath: sharedFlowContextPath,
-		SliceContextPath:      sliceContextPath,
-		VerifySkeletonPath:    verifySkeletonPath,
-		HandoffPath:           handoffPath,
-		SessionRegistryPath:   sessionRegistryPath,
-		AllowedWriteGlobs:     uniqueStrings(allowed),
-		ForbiddenWriteGlobs:   uniqueStrings(forbidden),
+		ProtocolID:            "mscpv1:" + input.TaskID + ":" + input.DispatchID + ":" + input.ExecutionSliceID,
+		TaskID:                input.TaskID,
+		DispatchID:            input.DispatchID,
+		TaskFamily:            input.TaskFamily,
+		SOPID:                 input.SOPID,
+		ExecutionSliceID:      input.ExecutionSliceID,
+		ResumeStrategy:        input.ResumeStrategy,
+		ContextLayersPath:     input.ContextLayersPath,
+		RequestContextPath:    input.RequestContextPath,
+		RuntimeContextPath:    input.RuntimeContextPath,
+		SharedFlowContextPath: input.SharedFlowContextPath,
+		SliceContextPath:      input.SliceContextPath,
+		TaskContractPath:      input.TaskContractPath,
+		TaskGraphPath:         input.TaskGraphPath,
+		AcceptedPacketPath:    input.AcceptedPacketPath,
+		VerifySkeletonPath:    input.VerifySkeletonPath,
+		HandoffContractPath:   input.HandoffContractPath,
+		HandoffPath:           input.HandoffPath,
+		SessionRegistryPath:   input.SessionRegistryPath,
+		ReadOrder:             uniqueStrings(input.ReadOrder),
+		RequiredArtifacts:     uniqueStrings(input.RequiredArtifacts),
+		AllowedWriteGlobs:     uniqueStrings(input.AllowedWriteGlobs),
+		ForbiddenWriteGlobs:   uniqueStrings(input.ForbiddenWriteGlobs),
 	}
 }
 
-func BuildVerifySkeleton(taskID, dispatchID string, family TaskFamily, sopID string, artifacts []string, checks []VerifyCheck, notes []string) VerifySkeleton {
+func BuildVerifySkeleton(taskID, dispatchID string, family TaskFamily, sopID, executionSliceID, contextLayersPath, handoffContractPath string, programOwns, artifacts []string, checks []VerifyCheck, notes []string) VerifySkeleton {
 	return VerifySkeleton{
 		SchemaVersion:     "kh.verify-skeleton.v1",
 		TaskID:            taskID,
 		DispatchID:        dispatchID,
 		TaskFamily:        family,
 		SOPID:             sopID,
+		ExecutionSliceID:  executionSliceID,
+		ContextLayersPath: contextLayersPath,
+		HandoffContract:   handoffContractPath,
+		ProgramOwns:       uniqueStrings(programOwns),
 		RequiredArtifacts: uniqueStrings(artifacts),
 		Checks:            checks,
 		Notes:             uniqueStrings(notes),
+	}
+}
+
+func BuildHandoffContract(taskID, dispatchID string, family TaskFamily, sopID, executionSliceID, contextLayersPath, verifySkeletonPath string, requiredArtifacts []string, sections []HandoffSection, resumeInstructions []string) HandoffContract {
+	return HandoffContract{
+		SchemaVersion:      "kh.handoff-contract.v1",
+		TaskID:             taskID,
+		DispatchID:         dispatchID,
+		TaskFamily:         family,
+		SOPID:              sopID,
+		ExecutionSliceID:   executionSliceID,
+		ContextLayersPath:  contextLayersPath,
+		VerifySkeletonPath: verifySkeletonPath,
+		RequiredArtifacts:  uniqueStrings(requiredArtifacts),
+		Sections:           sections,
+		ResumeInstructions: uniqueStrings(resumeInstructions),
+	}
+}
+
+func BuildTaskGraph(taskID, dispatchID string, family TaskFamily, sopID string, directPass bool, phases []string, executionTasks []ExecutionTask, sharedFlowContextPath string, notes []string) TaskGraph {
+	return TaskGraph{
+		SchemaVersion:         "kh.task-graph.v1",
+		TaskID:                taskID,
+		DispatchID:            dispatchID,
+		TaskFamily:            family,
+		SOPID:                 sopID,
+		DirectPass:            directPass,
+		Phases:                uniqueStrings(phases),
+		ExecutionTasks:        append([]ExecutionTask(nil), executionTasks...),
+		SharedFlowContextPath: sharedFlowContextPath,
+		Notes:                 uniqueStrings(notes),
 	}
 }

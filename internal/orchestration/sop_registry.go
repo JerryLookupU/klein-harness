@@ -32,6 +32,34 @@ func (r SOPRegistry) LookupByFamily(family TaskFamily) []SOPDefinition {
 	return append([]SOPDefinition(nil), r.byFamily[family]...)
 }
 
+func canonicalSOPFamily(family TaskFamily) TaskFamily {
+	switch family {
+	case TaskFamilyBugfixSmall, TaskFamilyFeatureModule, TaskFamilyFeatureSystem, TaskFamilyDevelopmentTask, TaskFamilyIntegrationExternal, TaskFamilyRepairOrResume:
+		return TaskFamilyDevelopmentTask
+	default:
+		return family
+	}
+}
+
+func resolveSOPDefinition(task adapter.Task) (SOPDefinition, bool) {
+	registry := DefaultSOPRegistry()
+	if task.SOPID != "" {
+		if def, ok := registry.Lookup(task.SOPID); ok {
+			return def, true
+		}
+	}
+	family := TaskFamily(task.TaskFamily)
+	if family == "" || family == TaskFamilyUnknown {
+		inferred, _ := ClassifyTaskFamily(task.Kind, task.Summary, []string{task.Description})
+		family = inferred
+	}
+	candidates := registry.LookupByFamily(canonicalSOPFamily(family))
+	if len(candidates) == 0 {
+		return SOPDefinition{}, false
+	}
+	return candidates[0], true
+}
+
 func ClassifyTaskFamily(kind, goal string, contexts []string) (TaskFamily, string) {
 	lower := strings.ToLower(strings.Join(append([]string{kind, goal}, contexts...), "\n"))
 	switch {
@@ -75,18 +103,14 @@ func hasAny(haystack string, needles ...string) bool {
 }
 
 func CompileFlowForTask(root string, task adapter.Task) CompiledFlow {
-	family := TaskFamily(task.TaskFamily)
-	if family == "" || family == TaskFamilyUnknown {
-		inferred, _ := ClassifyTaskFamily(task.Kind, task.Summary, []string{task.Description})
-		if inferred != TaskFamilyRepeatedEntityCorpus {
-			return CompiledFlow{}
-		}
-		family = inferred
+	def, ok := resolveSOPDefinition(task)
+	if !ok {
+		return CompiledFlow{}
 	}
-	switch family {
-	case TaskFamilyRepeatedEntityCorpus:
+	switch def.ID {
+	case SOPRepeatedEntityCorpusV1:
 		return CompileRepeatedEntityCorpus(root, task)
-	case TaskFamilyDevelopmentTask, TaskFamilyBugfixSmall, TaskFamilyFeatureModule, TaskFamilyFeatureSystem, TaskFamilyIntegrationExternal:
+	case SOPDevelopmentTaskV1:
 		return CompileDevelopmentTask(task)
 	default:
 		return CompileDevelopmentTask(task)

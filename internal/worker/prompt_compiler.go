@@ -16,12 +16,17 @@ type PromptCompileInput struct {
 	WorkerSpecPath      string
 	AcceptedPacketPath  string
 	TaskContractPath    string
+	TaskGraphPath       string
+	ContextLayersPath   string
+	RequestContextPath  string
+	RuntimeContextPath  string
 	PlanningTracePath   string
 	ConstraintPath      string
 	SharedContextPath   string
 	SharedFlowPath      string
 	SliceContextPath    string
 	VerifySkeletonPath  string
+	HandoffContractPath string
 	TakeoverPath        string
 	ArtifactDir         string
 	FeedbackSummaryPath string
@@ -61,11 +66,18 @@ func CompileWorkerPrompt(input PromptCompileInput) string {
 		"- If shared flow context is incomplete, report planning drift instead of freelancing.",
 		"",
 		"Read order:",
+		fmt.Sprintf("- %s", input.ContextLayersPath),
 		fmt.Sprintf("- %s", input.SharedContextPath),
 		fmt.Sprintf("- %s", input.SharedFlowPath),
 		fmt.Sprintf("- %s", input.SliceContextPath),
 		fmt.Sprintf("- %s", input.VerifySkeletonPath),
+		fmt.Sprintf("- %s", input.HandoffContractPath),
 		fmt.Sprintf("- %s", input.TaskContractPath),
+		"",
+		"Compiled context layers:",
+		fmt.Sprintf("- requestContextPath: %s", input.RequestContextPath),
+		fmt.Sprintf("- runtimeControlContextPath: %s", input.RuntimeContextPath),
+		fmt.Sprintf("- contextLayersPath: %s", input.ContextLayersPath),
 		"",
 		"Shared spec:",
 		fmt.Sprintf("- summary: %s", input.SharedFlowContext.Summary),
@@ -85,6 +97,15 @@ func CompileWorkerPrompt(input PromptCompileInput) string {
 	if input.SharedFlowContext.InterfaceRef != "" {
 		lines = append(lines, fmt.Sprintf("- interfaceRef: %s", input.SharedFlowContext.InterfaceRef))
 	}
+	if input.SharedFlowContext.TaskGraphRef != "" {
+		lines = append(lines, fmt.Sprintf("- taskGraphRef: %s", input.SharedFlowContext.TaskGraphRef))
+	}
+	if len(input.SharedFlowContext.CompiledPhases) > 0 {
+		lines = append(lines, fmt.Sprintf("- compiledPhases: %s", strings.Join(input.SharedFlowContext.CompiledPhases, ", ")))
+	}
+	if input.SharedFlowContext.DirectPass {
+		lines = append(lines, "- directPass: true")
+	}
 	for _, item := range input.SharedFlowContext.BoundarySummary {
 		lines = append(lines, "- "+item)
 	}
@@ -99,6 +120,12 @@ func CompileWorkerPrompt(input PromptCompileInput) string {
 	}
 	if len(input.SliceContext.Inputs) > 0 {
 		lines = append(lines, fmt.Sprintf("- inputs: %s", strings.Join(input.SliceContext.Inputs, ", ")))
+	}
+	if input.SliceContext.SliceMode != "" {
+		lines = append(lines, fmt.Sprintf("- sliceMode: %s", input.SliceContext.SliceMode))
+	}
+	if input.SliceContext.Sequence > 0 && input.SliceContext.TotalSlices > 0 {
+		lines = append(lines, fmt.Sprintf("- slicePosition: %d/%d", input.SliceContext.Sequence, input.SliceContext.TotalSlices))
 	}
 	if input.TaskFeedback != nil && len(input.TaskFeedback.RecentFailures) > 0 {
 		lines = append(lines, "", "Recent failure memory:")
@@ -160,6 +187,10 @@ func CompileWorkerPrompt(input PromptCompileInput) string {
 		fmt.Sprintf("- accepted packet: %s", input.AcceptedPacketPath),
 		fmt.Sprintf("- planning trace: %s", input.PlanningTracePath),
 		fmt.Sprintf("- constraints: %s", input.ConstraintPath),
+		fmt.Sprintf("- task graph: %s", input.TaskGraphPath),
+		fmt.Sprintf("- request context: %s", input.RequestContextPath),
+		fmt.Sprintf("- runtime control context: %s", input.RuntimeContextPath),
+		fmt.Sprintf("- handoff contract: %s", input.HandoffContractPath),
 		fmt.Sprintf("- takeover contract: %s", input.TakeoverPath),
 		"",
 		"Hookified verification flow:",

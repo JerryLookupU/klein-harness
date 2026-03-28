@@ -89,6 +89,7 @@ type AcceptedPacket struct {
 	RejectedAlternatives          []RejectedAlternative   `json:"rejectedAlternatives,omitempty"`
 	SharedContext                 *SharedTaskGroupContext `json:"sharedContext,omitempty"`
 	SharedFlowContextPath         string                  `json:"sharedFlowContextPath,omitempty"`
+	TaskGraphPath                 string                  `json:"taskGraphPath,omitempty"`
 	VariableInputsPath            string                  `json:"variableInputsPath,omitempty"`
 	ExecutionTasks                []ExecutionTask         `json:"executionTasks"`
 	VerificationPlan              map[string]any          `json:"verificationPlan"`
@@ -142,8 +143,11 @@ type TaskContract struct {
 	AcceptedAt            string                      `json:"acceptedAt"`
 	AcceptedPacketPath    string                      `json:"acceptedPacketPath,omitempty"`
 	SharedFlowContextPath string                      `json:"sharedFlowContextPath,omitempty"`
+	TaskGraphPath         string                      `json:"taskGraphPath,omitempty"`
 	SliceContextPath      string                      `json:"sliceContextPath,omitempty"`
+	ContextLayersPath     string                      `json:"contextLayersPath,omitempty"`
 	VerifySkeletonPath    string                      `json:"verifySkeletonPath,omitempty"`
+	HandoffContractPath   string                      `json:"handoffContractPath,omitempty"`
 }
 
 type PacketProgress struct {

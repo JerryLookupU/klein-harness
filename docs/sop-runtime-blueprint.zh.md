@@ -80,6 +80,8 @@
 - shared flow context 由程序冻结
 - slice-local context 由程序编译
 - runtime control context 主要给程序，不要求 worker 大量读取
+- 四层会同时落成 `request-context.json`、`shared-flow-context.json`、`slice-context.json`、`runtime-control-context.json`
+- runtime 另外会聚合生成 `context-layers.json`，让下一 session 按固定入口接棒
 
 ## SOP Registry
 
@@ -103,15 +105,19 @@
 
 - `shared-spec.json`
 - `variable-inputs.json`
+- `task-graph.json`
 - `shared-flow-context.json`
 - `slice-context.json`
+- `context-layers.json`
 - `verify-skeleton.json`
+- `handoff-contract.json`
 - `takeover-context.json`
 
 worker 负责：
 
 - 只处理当前 entity slice
 - 或只处理 closeout slice
+- 当 roster 只有 1 个对象时，允许 single slice direct pass
 
 ## development_task.v1
 
@@ -130,15 +136,19 @@ worker 负责：
 - `requirement-spec.json`
 - `architecture-contract.json`
 - `interface-contract.json`
+- `task-graph.json`
 - `shared-flow-context.json`
 - `slice-context.json`
+- `context-layers.json`
 - `verify-skeleton.json`
+- `handoff-contract.json`
 - `takeover-context.json`
 
 worker 负责：
 
 - 只执行当前开发 slice
 - 不重排整条开发 flow
+- 对 `bugfix_small` / `repair_or_resume` 以及明确单切片场景，允许 single slice direct pass
 
 ## Worker Prompt Compile 原则
 
@@ -151,10 +161,12 @@ prompt 从 `internal/worker/prompt_compiler.go` 生成，目标是：
 
 prompt 默认引导 worker 先看：
 
+- `context-layers.json`
 - `shared-context.json`
 - `shared-flow-context.json`
 - `slice-context.json`
 - `verify-skeleton.json`
+- `handoff-contract.json`
 - `task-contract.json`
 
 而不是先扫大量 `.harness/state/*`。
@@ -162,6 +174,7 @@ prompt 默认引导 worker 先看：
 ## Verify / Closeout 机制
 
 第一版增加程序化 `verify-skeleton.json`，避免 worker 输出空对象。
+同时增加程序化 `handoff-contract.json`，把 handoff 必填段落和 resume read order 固定下来。
 
 对 repeated corpus，程序应优先检查：
 
@@ -183,19 +196,36 @@ prompt 默认引导 worker 先看：
 
 第一版固定文件合同包括：
 
+- `request-context.json`
+- `runtime-control-context.json`
+- `context-layers.json`
 - `shared-flow-context.json`
 - `slice-context.json`
+- `task-graph.json`
 - `verify-skeleton.json`
+- `handoff-contract.json`
 - `takeover-context.json`
 - `handoff.md`
 - `session-registry.json`
 
 下一个 session 应只需读取这些固定文件，就能知道：
 
+- 本轮 request / runtime control 是什么
 - 这一棒的 shared flow context 是什么
 - 当前 slice 能改什么、不能改什么
+- 编译后的 task graph 和 slice 位次是什么
 - verify 需要补什么
+- handoff 必须补哪些段落
 - handoff 应该如何接棒
+
+推荐 read order：
+
+1. `context-layers.json`
+2. `shared-flow-context.json`
+3. `slice-context.json`
+4. `verify-skeleton.json`
+5. `handoff-contract.json`
+6. `handoff.md`
 
 ## 渐进迁移
 

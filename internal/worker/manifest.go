@@ -117,12 +117,17 @@ func Prepare(root string, ticket dispatch.Ticket, leaseID string) (DispatchBundl
 	workerSpecPath := filepath.Join(artifactDir, "worker-spec.json")
 	acceptedPacketPath := orchestration.AcceptedPacketPath(paths.Root, task.TaskID)
 	taskContractPath := orchestration.TaskContractPath(artifactDir)
+	taskGraphPath := filepath.Join(artifactDir, "task-graph.json")
+	requestContextPath := filepath.Join(artifactDir, "request-context.json")
+	runtimeContextPath := filepath.Join(artifactDir, "runtime-control-context.json")
+	contextLayersPath := filepath.Join(artifactDir, "context-layers.json")
 	sharedContextPath := filepath.Join(artifactDir, "shared-context.json")
 	sharedSpecPath := filepath.Join(artifactDir, "shared-spec.json")
 	variableInputsPath := filepath.Join(artifactDir, "variable-inputs.json")
 	sharedFlowContextPath := filepath.Join(artifactDir, "shared-flow-context.json")
 	sliceContextPath := filepath.Join(artifactDir, "slice-context.json")
 	verifySkeletonPath := filepath.Join(artifactDir, "verify-skeleton.json")
+	handoffContractPath := filepath.Join(artifactDir, "handoff-contract.json")
 	takeoverPath := filepath.Join(artifactDir, "takeover-context.json")
 	promptPath := filepath.Join(paths.StateDir, fmt.Sprintf("runner-prompt-%s.md", task.TaskID))
 	planningTracePath := filepath.Join(paths.StateDir, fmt.Sprintf("planning-trace-%s.md", task.TaskID))
@@ -147,6 +152,7 @@ func Prepare(root string, ticket dispatch.Ticket, leaseID string) (DispatchBundl
 	judgeDecision := orchestration.DefaultJudgeDecision(packetSynthesis, methodology, unique(ticket.ReasonCodes))
 	executionLoop := orchestration.DefaultExecutionLoopContract(paths.Root, unique(ticket.ReasonCodes))
 	compiledFlow := orchestration.CompileFlowForTask(paths.Root, task)
+	task = materializeTaskOrchestrationMetadata(task, compiledFlow)
 	activeSkills := executionLoop.ActiveSkills
 	skillHints := executionLoop.SkillHints
 	workerSpec := map[string]any{
@@ -181,9 +187,14 @@ func Prepare(root string, ticket dispatch.Ticket, leaseID string) (DispatchBundl
 		"constraintPath":        constraintPath,
 		"acceptedPacketPath":    acceptedPacketPath,
 		"taskContractPath":      taskContractPath,
+		"taskGraphPath":         taskGraphPath,
+		"requestContextPath":    requestContextPath,
+		"runtimeContextPath":    runtimeContextPath,
+		"contextLayersPath":     contextLayersPath,
 		"sharedFlowContextPath": sharedFlowContextPath,
 		"sliceContextPath":      sliceContextPath,
 		"verifySkeletonPath":    verifySkeletonPath,
+		"handoffContractPath":   handoffContractPath,
 		"takeoverPath":          takeoverPath,
 		"decisionRationale":     coalesce(task.Description, task.Summary),
 		"replanTriggers": []string{
@@ -198,7 +209,7 @@ func Prepare(root string, ticket dispatch.Ticket, leaseID string) (DispatchBundl
 			"handoff_before_exit_when_blocked",
 		},
 	}
-	acceptedPacket := buildAcceptedPacket(paths.Root, task, ticket, judgeDecision, hookPlan, verifyCommands, compiledFlow, sharedFlowContextPath, variableInputsPath)
+	acceptedPacket := buildAcceptedPacket(paths.Root, task, ticket, judgeDecision, hookPlan, verifyCommands, compiledFlow, sharedFlowContextPath, taskGraphPath, variableInputsPath)
 	if acceptedPacket.SharedContext != nil {
 		if err := writeJSON(sharedContextPath, acceptedPacket.SharedContext); err != nil {
 			return DispatchBundle{}, err
@@ -237,6 +248,23 @@ func Prepare(root string, ticket dispatch.Ticket, leaseID string) (DispatchBundl
 		}
 		compiledFlow.SharedFlowContext.InterfaceRef = interfaceContractPath
 	}
+	taskGraph := orchestration.BuildTaskGraph(
+		task.TaskID,
+		ticket.DispatchID,
+		compiledFlow.Family,
+		task.SOPID,
+		compiledFlow.SharedFlowContext.DirectPass,
+		compiledFlow.SharedFlowContext.CompiledPhases,
+		compiledFlow.ExecutionTasks,
+		sharedFlowContextPath,
+		[]string{
+			"Program owns task graph compilation; worker must not re-plan the full flow.",
+		},
+	)
+	if err := writeJSON(taskGraphPath, taskGraph); err != nil {
+		return DispatchBundle{}, err
+	}
+	compiledFlow.SharedFlowContext.TaskGraphRef = taskGraphPath
 	if err := writeJSON(sharedFlowContextPath, compiledFlow.SharedFlowContext); err != nil {
 		return DispatchBundle{}, err
 	}
@@ -251,7 +279,7 @@ func Prepare(root string, ticket dispatch.Ticket, leaseID string) (DispatchBundl
 	if err := syncPacketProgress(paths.Root, acceptedPacket); err != nil {
 		return DispatchBundle{}, err
 	}
-	taskContract := buildTaskContract(paths.Root, task, ticket, acceptedPacket, hookPlan, acceptedPacketPath, sharedFlowContextPath, sliceContextPath, verifySkeletonPath)
+	taskContract := buildTaskContract(paths.Root, task, ticket, acceptedPacket, hookPlan, acceptedPacketPath, sharedFlowContextPath, taskGraphPath, sliceContextPath, verifySkeletonPath)
 	taskContractRevision, err := state.CurrentRevision(taskContractPath)
 	if err != nil {
 		return DispatchBundle{}, err
@@ -268,28 +296,143 @@ func Prepare(root string, ticket dispatch.Ticket, leaseID string) (DispatchBundl
 	workerSpec["sopId"] = task.SOPID
 	workerSpec["sharedContext"] = acceptedPacket.SharedContext
 	workerSpec["sharedFlowContext"] = compiledFlow.SharedFlowContext
-	if selectedTask := selectedExecutionTaskByID(acceptedPacket.ExecutionTasks, taskContract.ExecutionSliceID); selectedTask != nil {
+	selectedTask, selectedIndex := selectedExecutionTaskDetails(acceptedPacket.ExecutionTasks, taskContract.ExecutionSliceID)
+	if selectedTask != nil {
 		workerSpec["taskGroupId"] = selectedTask.TaskGroupID
 		workerSpec["batchLabel"] = selectedTask.BatchLabel
 		workerSpec["entityBatch"] = selectedTask.EntityBatch
 		workerSpec["outputTargets"] = selectedTask.OutputTargets
 	}
-	sliceContext := buildSliceLocalContext(task, taskContract, selectedExecutionTaskByID(acceptedPacket.ExecutionTasks, taskContract.ExecutionSliceID), sharedFlowContextPath)
+	sliceContext := buildSliceLocalContext(task, taskContract, selectedTask, sharedFlowContextPath, taskGraphPath, selectedIndex, len(acceptedPacket.ExecutionTasks))
 	if err := writeJSON(sliceContextPath, sliceContext); err != nil {
 		return DispatchBundle{}, err
 	}
-	verifySkeleton := buildVerifySkeleton(task, ticket, acceptedPacket, taskContract, compiledFlow, selectedExecutionTaskByID(acceptedPacket.ExecutionTasks, taskContract.ExecutionSliceID))
+	requestContext := orchestration.RequestContext{
+		Goal:     coalesce(task.Summary, task.Title),
+		Kind:     task.Kind,
+		Contexts: splitTaskContexts(task.Description),
+	}
+	runtimeControlContext := orchestration.RuntimeControlContext{
+		TaskID:              task.TaskID,
+		DispatchID:          ticket.DispatchID,
+		LeaseID:             leaseID,
+		ExecutionSliceID:    taskContract.ExecutionSliceID,
+		AcceptedPacketID:    acceptedPacket.PacketID,
+		ResumeSessionID:     ticket.ResumeSessionID,
+		AcceptedPacketPath:  acceptedPacketPath,
+		TaskContractPath:    taskContractPath,
+		TaskGraphPath:       taskGraphPath,
+		ContextLayersPath:   contextLayersPath,
+		RequestContextPath:  requestContextPath,
+		RuntimeContextPath:  runtimeContextPath,
+		VerifySkeletonPath:  verifySkeletonPath,
+		HandoffContractPath: handoffContractPath,
+		TakeoverPath:        takeoverPath,
+		SessionRegistryPath: paths.SessionRegistryPath,
+		ArtifactDir:         artifactDir,
+	}
+	contextLayers := orchestration.BuildContextLayers(requestContext, compiledFlow.SharedFlowContext, sliceContext, runtimeControlContext)
+	if err := writeJSON(requestContextPath, requestContext); err != nil {
+		return DispatchBundle{}, err
+	}
+	if err := writeJSON(runtimeContextPath, runtimeControlContext); err != nil {
+		return DispatchBundle{}, err
+	}
+	if err := writeJSON(contextLayersPath, contextLayers); err != nil {
+		return DispatchBundle{}, err
+	}
+	verifySkeleton := buildVerifySkeleton(task, ticket, acceptedPacket, taskContract, compiledFlow, selectedTask, contextLayersPath, handoffContractPath)
 	if err := writeJSON(verifySkeletonPath, verifySkeleton); err != nil {
 		return DispatchBundle{}, err
 	}
-	takeoverContract := orchestration.BuildContinuationProtocol(task.TaskID, ticket.DispatchID, sharedFlowContextPath, sliceContextPath, verifySkeletonPath, filepath.Join(artifactDir, "handoff.md"), paths.SessionRegistryPath, taskContract.AllowedWriteGlobs, taskContract.ForbiddenWriteGlobs)
+	handoffContract := orchestration.BuildHandoffContract(
+		task.TaskID,
+		ticket.DispatchID,
+		compiledFlow.Family,
+		task.SOPID,
+		taskContract.ExecutionSliceID,
+		contextLayersPath,
+		verifySkeletonPath,
+		[]string{"worker-result.json", "verify.json", "handoff.md"},
+		[]orchestration.HandoffSection{
+			{ID: "completed", Title: "Completed Work", Description: "What this slice changed and what artifacts were produced.", Required: true},
+			{ID: "verification", Title: "Verification Evidence", Description: "Commands, files, and evidence refs copied from verify.json.", Required: true},
+			{ID: "risks", Title: "Risks / Open Questions", Description: "Residual risk, blocked items, or scope drift.", Required: true},
+			{ID: "next", Title: "Next Session Starting Point", Description: "The next bounded action without re-reading global ledgers.", Required: true},
+		},
+		[]string{
+			"Next session starts from context-layers.json, then shared-flow-context.json, slice-context.json, verify-skeleton.json, handoff-contract.json, and handoff.md.",
+			"Do not reopen planning trace or global .harness state unless the compiled contract is inconsistent.",
+		},
+	)
+	if err := writeJSON(handoffContractPath, handoffContract); err != nil {
+		return DispatchBundle{}, err
+	}
+	takeoverContract := orchestration.BuildContinuationProtocol(orchestration.ContinuationProtocolInput{
+		TaskID:                task.TaskID,
+		DispatchID:            ticket.DispatchID,
+		TaskFamily:            compiledFlow.Family,
+		SOPID:                 task.SOPID,
+		ExecutionSliceID:      taskContract.ExecutionSliceID,
+		ResumeStrategy:        task.ResumeStrategy,
+		ContextLayersPath:     contextLayersPath,
+		RequestContextPath:    requestContextPath,
+		RuntimeContextPath:    runtimeContextPath,
+		SharedFlowContextPath: sharedFlowContextPath,
+		SliceContextPath:      sliceContextPath,
+		TaskContractPath:      taskContractPath,
+		TaskGraphPath:         taskGraphPath,
+		AcceptedPacketPath:    acceptedPacketPath,
+		VerifySkeletonPath:    verifySkeletonPath,
+		HandoffContractPath:   handoffContractPath,
+		HandoffPath:           filepath.Join(artifactDir, "handoff.md"),
+		SessionRegistryPath:   paths.SessionRegistryPath,
+		ReadOrder: []string{
+			contextLayersPath,
+			sharedFlowContextPath,
+			sliceContextPath,
+			verifySkeletonPath,
+			handoffContractPath,
+			filepath.Join(artifactDir, "handoff.md"),
+		},
+		RequiredArtifacts: []string{
+			contextLayersPath,
+			sharedFlowContextPath,
+			sliceContextPath,
+			verifySkeletonPath,
+			handoffContractPath,
+			filepath.Join(artifactDir, "handoff.md"),
+		},
+		AllowedWriteGlobs:   taskContract.AllowedWriteGlobs,
+		ForbiddenWriteGlobs: taskContract.ForbiddenWriteGlobs,
+	})
 	if err := writeJSON(takeoverPath, takeoverContract); err != nil {
+		return DispatchBundle{}, err
+	}
+	taskContract.ContextLayersPath = contextLayersPath
+	taskContract.TaskGraphPath = taskGraphPath
+	taskContract.HandoffContractPath = handoffContractPath
+	taskContractRevision, err = state.CurrentRevision(taskContractPath)
+	if err != nil {
+		return DispatchBundle{}, err
+	}
+	if err := orchestration.WriteTaskContractCAS(taskContractPath, taskContract, taskContractRevision); err != nil {
 		return DispatchBundle{}, err
 	}
 	workerSpec["sliceContextPath"] = sliceContextPath
 	workerSpec["verifySkeletonPath"] = verifySkeletonPath
+	workerSpec["taskGraphPath"] = taskGraphPath
+	workerSpec["requestContextPath"] = requestContextPath
+	workerSpec["runtimeContextPath"] = runtimeContextPath
+	workerSpec["contextLayersPath"] = contextLayersPath
+	workerSpec["handoffContractPath"] = handoffContractPath
 	workerSpec["takeoverPath"] = takeoverPath
 	workerSpec["sharedFlowContextPath"] = sharedFlowContextPath
+	workerSpec["contextLayers"] = contextLayers
+	workerSpec["requestContext"] = requestContext
+	workerSpec["runtimeControlContext"] = runtimeControlContext
+	workerSpec["taskGraph"] = taskGraph
+	workerSpec["handoffContract"] = handoffContract
 	commandBanner := tmuxCommandBanner(task, acceptedPacket.ExecutionTasks, taskContract)
 	workerSpec["tmuxCommandBanner"] = commandBanner
 	workerSpec["tmuxCommandProtocol"] = "[harness:<task-id>] <node-task-description>"
@@ -351,9 +494,14 @@ func Prepare(root string, ticket dispatch.Ticket, leaseID string) (DispatchBundl
 		"acceptedPacketPath":      acceptedPacketPath,
 		"taskContractPath":        taskContractPath,
 		"sharedContextPath":       sharedContextPath,
+		"requestContextPath":      requestContextPath,
+		"runtimeContextPath":      runtimeContextPath,
+		"contextLayersPath":       contextLayersPath,
 		"sharedFlowContextPath":   sharedFlowContextPath,
+		"taskGraphPath":           taskGraphPath,
 		"sliceContextPath":        sliceContextPath,
 		"verifySkeletonPath":      verifySkeletonPath,
+		"handoffContractPath":     handoffContractPath,
 		"takeoverPath":            takeoverPath,
 		"executionSliceId":        taskContract.ExecutionSliceID,
 		"workerSpecPath":          workerSpecPath,
@@ -362,22 +510,28 @@ func Prepare(root string, ticket dispatch.Ticket, leaseID string) (DispatchBundl
 		"tmuxCommandProtocol":     "[harness:<task-id>] <node-task-description>",
 		"acceptedPacket":          acceptedPacket,
 		"sharedContext":           acceptedPacket.SharedContext,
+		"contextLayers":           contextLayers,
 		"sharedFlowContext":       compiledFlow.SharedFlowContext,
 		"taskContract":            taskContract,
 		"artifacts": map[string]string{
-			"sharedContext":  sharedContextPath,
-			"sharedSpec":     sharedSpecPath,
-			"variableInputs": variableInputsPath,
-			"sharedFlow":     sharedFlowContextPath,
-			"sliceContext":   sliceContextPath,
-			"verifySkeleton": verifySkeletonPath,
-			"takeover":       takeoverPath,
-			"acceptedPacket": acceptedPacketPath,
-			"taskContract":   taskContractPath,
-			"workerSpec":     workerSpecPath,
-			"workerResult":   filepath.Join(artifactDir, "worker-result.json"),
-			"verify":         filepath.Join(artifactDir, "verify.json"),
-			"handoff":        filepath.Join(artifactDir, "handoff.md"),
+			"sharedContext":   sharedContextPath,
+			"requestContext":  requestContextPath,
+			"runtimeContext":  runtimeContextPath,
+			"contextLayers":   contextLayersPath,
+			"sharedSpec":      sharedSpecPath,
+			"variableInputs":  variableInputsPath,
+			"sharedFlow":      sharedFlowContextPath,
+			"taskGraph":       taskGraphPath,
+			"sliceContext":    sliceContextPath,
+			"verifySkeleton":  verifySkeletonPath,
+			"handoffContract": handoffContractPath,
+			"takeover":        takeoverPath,
+			"acceptedPacket":  acceptedPacketPath,
+			"taskContract":    taskContractPath,
+			"workerSpec":      workerSpecPath,
+			"workerResult":    filepath.Join(artifactDir, "worker-result.json"),
+			"verify":          filepath.Join(artifactDir, "verify.json"),
+			"handoff":         filepath.Join(artifactDir, "handoff.md"),
 		},
 		"authorityBoundary": map[string]any{
 			"routeFirstDispatchSecond":  true,
@@ -410,6 +564,9 @@ func Prepare(root string, ticket dispatch.Ticket, leaseID string) (DispatchBundl
 				"constraints":     constraintPath,
 				"acceptedPacket":  acceptedPacketPath,
 				"taskContract":    taskContractPath,
+				"taskGraph":       taskGraphPath,
+				"contextLayers":   contextLayersPath,
+				"handoffContract": handoffContractPath,
 			},
 			orchestration.PromptRefs(paths.Root),
 		),
@@ -427,12 +584,17 @@ func Prepare(root string, ticket dispatch.Ticket, leaseID string) (DispatchBundl
 		WorkerSpecPath:      workerSpecPath,
 		AcceptedPacketPath:  acceptedPacketPath,
 		TaskContractPath:    taskContractPath,
+		TaskGraphPath:       taskGraphPath,
+		ContextLayersPath:   contextLayersPath,
+		RequestContextPath:  requestContextPath,
+		RuntimeContextPath:  runtimeContextPath,
 		PlanningTracePath:   planningTracePath,
 		ConstraintPath:      constraintPath,
 		SharedContextPath:   sharedContextPath,
 		SharedFlowPath:      sharedFlowContextPath,
 		SliceContextPath:    sliceContextPath,
 		VerifySkeletonPath:  verifySkeletonPath,
+		HandoffContractPath: handoffContractPath,
 		TakeoverPath:        takeoverPath,
 		ArtifactDir:         artifactDir,
 		FeedbackSummaryPath: filepath.Join(paths.StateDir, "feedback-summary.json"),
@@ -496,6 +658,16 @@ func verificationCommands(path string, ruleIDs []string) ([]map[string]any, erro
 		})
 	}
 	return commands, nil
+}
+
+func materializeTaskOrchestrationMetadata(task adapter.Task, compiledFlow orchestration.CompiledFlow) adapter.Task {
+	if compiledFlow.Family != "" && (strings.TrimSpace(task.TaskFamily) == "" || task.TaskFamily == string(orchestration.TaskFamilyUnknown)) {
+		task.TaskFamily = string(compiledFlow.Family)
+	}
+	if strings.TrimSpace(compiledFlow.SOPID) != "" {
+		task.SOPID = compiledFlow.SOPID
+	}
+	return task
 }
 
 func buildPrompt(ticketPath, workerSpecPath, sharedContextPath, acceptedPacketPath, taskContractPath, executionSliceID, planningTracePath, constraintPath, artifactDir, feedbackSummaryPath string, task adapter.Task, ticket dispatch.Ticket, packetSynthesis orchestration.PacketSynthesisLoop, executionLoop orchestration.ExecutionLoopContract, hookPlan verify.HookPlan, taskFeedback *verify.TaskFeedbackSummary, constraintSystem orchestration.ConstraintSystem, sharedContext *orchestration.SharedTaskGroupContext, selectedTask *orchestration.ExecutionTask) string {
@@ -699,7 +871,7 @@ func buildPrompt(ticketPath, workerSpecPath, sharedContextPath, acceptedPacketPa
 	return strings.Join(lines, "\n") + "\n"
 }
 
-func buildAcceptedPacket(root string, task adapter.Task, ticket dispatch.Ticket, judgeDecision orchestration.JudgeDecision, hookPlan verify.HookPlan, verifyCommands []map[string]any, compiledFlow orchestration.CompiledFlow, sharedFlowContextPath, variableInputsPath string) orchestration.AcceptedPacket {
+func buildAcceptedPacket(root string, task adapter.Task, ticket dispatch.Ticket, judgeDecision orchestration.JudgeDecision, hookPlan verify.HookPlan, verifyCommands []map[string]any, compiledFlow orchestration.CompiledFlow, sharedFlowContextPath, taskGraphPath, variableInputsPath string) orchestration.AcceptedPacket {
 	flowSelection := strings.TrimSpace(judgeDecision.SelectedFlow)
 	if flowSelection == "" {
 		flowSelection = "standard bounded delivery"
@@ -734,6 +906,7 @@ func buildAcceptedPacket(root string, task adapter.Task, ticket dispatch.Ticket,
 		},
 		SharedContext:         sharedContext,
 		SharedFlowContextPath: sharedFlowContextPath,
+		TaskGraphPath:         taskGraphPath,
 		VariableInputsPath:    variableInputsPath,
 		ExecutionTasks:        executionTasks,
 		VerificationPlan: map[string]any{
@@ -933,14 +1106,19 @@ func truncateLabel(value string, limit int) string {
 }
 
 func selectedExecutionTaskByID(tasks []orchestration.ExecutionTask, sliceID string) *orchestration.ExecutionTask {
-	for _, item := range tasks {
+	task, _ := selectedExecutionTaskDetails(tasks, sliceID)
+	return task
+}
+
+func selectedExecutionTaskDetails(tasks []orchestration.ExecutionTask, sliceID string) (*orchestration.ExecutionTask, int) {
+	for index, item := range tasks {
 		if strings.TrimSpace(item.ID) != strings.TrimSpace(sliceID) {
 			continue
 		}
 		copy := item
-		return &copy
+		return &copy, index
 	}
-	return nil
+	return nil, -1
 }
 
 func summarizeEntitySelection(selection orchestration.EntitySelection) string {
@@ -1578,7 +1756,7 @@ func pendingOrchestrationExpansion(root string, task adapter.Task) (bool, string
 	return true, "roster_freeze_required_before_atomic_fanout", rosterPath
 }
 
-func buildTaskContract(root string, task adapter.Task, ticket dispatch.Ticket, packet orchestration.AcceptedPacket, hookPlan verify.HookPlan, acceptedPacketPath, sharedFlowContextPath, sliceContextPath, verifySkeletonPath string) orchestration.TaskContract {
+func buildTaskContract(root string, task adapter.Task, ticket dispatch.Ticket, packet orchestration.AcceptedPacket, hookPlan verify.HookPlan, acceptedPacketPath, sharedFlowContextPath, taskGraphPath, sliceContextPath, verifySkeletonPath string) orchestration.TaskContract {
 	selectedTask := selectExecutionTask(root, task.TaskID, task.PlanEpoch, packet.PacketID, packet.ExecutionTasks, ticket.Attempt)
 	executionSliceID := task.TaskID
 	inScope := unique(task.OwnedPaths)
@@ -1648,6 +1826,7 @@ func buildTaskContract(root string, task adapter.Task, ticket dispatch.Ticket, p
 		AcceptedAt:            nowUTC(),
 		AcceptedPacketPath:    acceptedPacketPath,
 		SharedFlowContextPath: sharedFlowContextPath,
+		TaskGraphPath:         taskGraphPath,
 		SliceContextPath:      sliceContextPath,
 		VerifySkeletonPath:    verifySkeletonPath,
 	}
@@ -1665,16 +1844,23 @@ func verificationStepTitles(commands []map[string]any) []string {
 	return steps
 }
 
-func buildSliceLocalContext(task adapter.Task, contract orchestration.TaskContract, selectedTask *orchestration.ExecutionTask, sharedFlowContextPath string) orchestration.SliceLocalContext {
+func buildSliceLocalContext(task adapter.Task, contract orchestration.TaskContract, selectedTask *orchestration.ExecutionTask, sharedFlowContextPath, taskGraphPath string, selectedIndex, totalSlices int) orchestration.SliceLocalContext {
+	sliceMode := "staged"
+	if totalSlices <= 1 || strings.EqualFold(coalesce(selectedTaskBatchLabel(selectedTask)), "direct-pass") {
+		sliceMode = "direct_pass"
+	}
 	slice := orchestration.SliceLocalContext{
 		ExecutionSliceID:    contract.ExecutionSliceID,
+		SliceMode:           sliceMode,
+		Sequence:            selectedIndex + 1,
+		TotalSlices:         totalSlices,
 		Title:               coalesce(task.Title, task.TaskID),
 		Summary:             contract.Objective,
 		AllowedWriteGlobs:   unique(contract.AllowedWriteGlobs),
 		ForbiddenWriteGlobs: unique(contract.ForbiddenWriteGlobs),
 		OutputTargets:       []string{},
 		DoneCriteria:        unique(contract.DoneCriteria),
-		Inputs:              uniqueNonEmpty(sharedFlowContextPath, contract.AcceptedPacketPath),
+		Inputs:              uniqueNonEmpty(sharedFlowContextPath, taskGraphPath, contract.AcceptedPacketPath),
 	}
 	if selectedTask != nil {
 		if strings.TrimSpace(selectedTask.Title) != "" {
@@ -1688,7 +1874,19 @@ func buildSliceLocalContext(task adapter.Task, contract orchestration.TaskContra
 	return slice
 }
 
-func buildVerifySkeleton(task adapter.Task, ticket dispatch.Ticket, packet orchestration.AcceptedPacket, contract orchestration.TaskContract, compiledFlow orchestration.CompiledFlow, selectedTask *orchestration.ExecutionTask) orchestration.VerifySkeleton {
+func selectedTaskBatchLabel(task *orchestration.ExecutionTask) string {
+	if task == nil {
+		return ""
+	}
+	return task.BatchLabel
+}
+
+func splitTaskContexts(description string) []string {
+	lines := strings.Split(description, "\n")
+	return uniqueNonEmpty(lines...)
+}
+
+func buildVerifySkeleton(task adapter.Task, ticket dispatch.Ticket, packet orchestration.AcceptedPacket, contract orchestration.TaskContract, compiledFlow orchestration.CompiledFlow, selectedTask *orchestration.ExecutionTask, contextLayersPath, handoffContractPath string) orchestration.VerifySkeleton {
 	artifacts := []string{
 		"worker-result.json",
 		"verify.json",
@@ -1725,7 +1923,11 @@ func buildVerifySkeleton(task adapter.Task, ticket dispatch.Ticket, packet orche
 			orchestration.VerifyCheck{ID: "handoff_contract", Kind: "handoff", Description: "handoff should explain completed work, risks, and next step."},
 		)
 	}
-	return orchestration.BuildVerifySkeleton(task.TaskID, ticket.DispatchID, compiledFlow.Family, packet.SOPID, artifacts, checks, []string{
+	return orchestration.BuildVerifySkeleton(task.TaskID, ticket.DispatchID, compiledFlow.Family, packet.SOPID, contract.ExecutionSliceID, contextLayersPath, handoffContractPath, []string{
+		"context-layers.json",
+		"verify-skeleton.json",
+		"handoff-contract.json",
+	}, artifacts, checks, []string{
 		"Program owns verify skeleton shape; model should only add evidence and risk notes.",
 		"Empty verify.json is invalid.",
 	})

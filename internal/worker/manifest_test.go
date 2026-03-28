@@ -114,6 +114,8 @@ func TestPrepareWritesDispatchTicketWorkerSpecAndPrompt(t *testing.T) {
 		IdempotencyKey          string   `json:"idempotencyKey"`
 		LeaseID                 string   `json:"leaseId"`
 		TaskID                  string   `json:"taskId"`
+		TaskFamily              string   `json:"taskFamily"`
+		SOPID                   string   `json:"sopId"`
 		RepoRole                string   `json:"repoRole"`
 		DirectTargetEditAllowed bool     `json:"directTargetEditAllowed"`
 		ArtifactDir             string   `json:"artifactDir"`
@@ -196,6 +198,9 @@ func TestPrepareWritesDispatchTicketWorkerSpecAndPrompt(t *testing.T) {
 	if ticket.DispatchID != "dispatch_T-1_3_1" || ticket.LeaseID != "lease-1" || ticket.TaskID != "T-1" {
 		t.Fatalf("unexpected ticket identity: %+v", ticket)
 	}
+	if ticket.TaskFamily != string(orchestration.TaskFamilyDevelopmentTask) || ticket.SOPID != orchestration.SOPDevelopmentTaskV1 {
+		t.Fatalf("expected dispatch ticket to carry compiled family+sop, got %+v", ticket)
+	}
 	if ticket.IdempotencyKey != "dispatch:T-1:epoch_3:attempt_1" {
 		t.Fatalf("ticket missing idempotency key: %+v", ticket)
 	}
@@ -270,16 +275,23 @@ func TestPrepareWritesDispatchTicketWorkerSpecAndPrompt(t *testing.T) {
 	}
 
 	var workerSpec struct {
-		SchemaVersion     string   `json:"schemaVersion"`
-		DispatchID        string   `json:"dispatchId"`
-		TaskID            string   `json:"taskId"`
-		ThreadKey         string   `json:"threadKey"`
-		PlanEpoch         int      `json:"planEpoch"`
-		Objective         string   `json:"objective"`
-		SelectedPlan      string   `json:"selectedPlan"`
-		AcceptanceMarkers []string `json:"acceptanceMarkers"`
-		ConstraintPath    string   `json:"constraintPath"`
-		SharedContextPath string   `json:"sharedContextPath"`
+		SchemaVersion       string   `json:"schemaVersion"`
+		DispatchID          string   `json:"dispatchId"`
+		TaskID              string   `json:"taskId"`
+		TaskFamily          string   `json:"taskFamily"`
+		SOPID               string   `json:"sopId"`
+		ThreadKey           string   `json:"threadKey"`
+		PlanEpoch           int      `json:"planEpoch"`
+		Objective           string   `json:"objective"`
+		SelectedPlan        string   `json:"selectedPlan"`
+		AcceptanceMarkers   []string `json:"acceptanceMarkers"`
+		ConstraintPath      string   `json:"constraintPath"`
+		SharedContextPath   string   `json:"sharedContextPath"`
+		TaskGraphPath       string   `json:"taskGraphPath"`
+		RequestContextPath  string   `json:"requestContextPath"`
+		RuntimeContextPath  string   `json:"runtimeContextPath"`
+		ContextLayersPath   string   `json:"contextLayersPath"`
+		HandoffContractPath string   `json:"handoffContractPath"`
 	}
 	workerSpecPayload, err := os.ReadFile(bundle.WorkerSpecPath)
 	if err != nil {
@@ -290,6 +302,9 @@ func TestPrepareWritesDispatchTicketWorkerSpecAndPrompt(t *testing.T) {
 	}
 	if workerSpec.SchemaVersion != "kh.worker-spec.v1" || workerSpec.DispatchID != ticket.DispatchID || workerSpec.TaskID != ticket.TaskID {
 		t.Fatalf("worker spec identity mismatch: %+v", workerSpec)
+	}
+	if workerSpec.TaskFamily != ticket.TaskFamily || workerSpec.SOPID != ticket.SOPID {
+		t.Fatalf("worker spec missing compiled family+sop: %+v ticket=%+v", workerSpec, ticket)
 	}
 	if workerSpec.ThreadKey != "thread-1" || workerSpec.PlanEpoch != 3 {
 		t.Fatalf("worker spec missing lineage: %+v", workerSpec)
@@ -302,6 +317,20 @@ func TestPrepareWritesDispatchTicketWorkerSpecAndPrompt(t *testing.T) {
 	}
 	if workerSpec.SharedContextPath == "" {
 		t.Fatalf("worker spec missing shared context path: %+v", workerSpec)
+	}
+	for _, path := range []string{
+		workerSpec.TaskGraphPath,
+		workerSpec.RequestContextPath,
+		workerSpec.RuntimeContextPath,
+		workerSpec.ContextLayersPath,
+		workerSpec.HandoffContractPath,
+	} {
+		if path == "" {
+			t.Fatalf("worker spec missing compiled context path: %+v", workerSpec)
+		}
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("expected compiled context artifact to exist: %s err=%v", path, err)
+		}
 	}
 	if _, err := os.Stat(bundle.AcceptedPacketPath); err != nil {
 		t.Fatalf("expected accepted packet to exist: %v", err)
@@ -331,6 +360,9 @@ func TestPrepareWritesDispatchTicketWorkerSpecAndPrompt(t *testing.T) {
 	}
 	if !strings.Contains(promptText, bundle.TaskContractPath) {
 		t.Fatalf("prompt missing task contract path: %s", promptText)
+	}
+	if !strings.Contains(promptText, workerSpec.ContextLayersPath) || !strings.Contains(promptText, workerSpec.HandoffContractPath) {
+		t.Fatalf("prompt missing compiled context refs: %s", promptText)
 	}
 	if !strings.Contains(promptText, workerSpec.SharedContextPath) {
 		t.Fatalf("prompt missing shared context path: %s", promptText)
@@ -423,6 +455,44 @@ func TestPrepareWritesDispatchTicketWorkerSpecAndPrompt(t *testing.T) {
 	}
 	if !strings.Contains(planningText, "Packet Planner A") || !strings.Contains(planningText, "Packet Judge") {
 		t.Fatalf("planning trace missing planner/judge details: %s", planningText)
+	}
+
+	var contextLayers struct {
+		SchemaVersion string `json:"schemaVersion"`
+		Request       struct {
+			Goal string `json:"goal"`
+			Kind string `json:"kind"`
+		} `json:"request"`
+		SliceLocal struct {
+			ExecutionSliceID string `json:"executionSliceId"`
+		} `json:"sliceLocal"`
+		RuntimeControl struct {
+			TaskGraphPath string `json:"taskGraphPath"`
+		} `json:"runtimeControl"`
+	}
+	if payload, err := os.ReadFile(workerSpec.ContextLayersPath); err != nil {
+		t.Fatalf("read context layers: %v", err)
+	} else if err := json.Unmarshal(payload, &contextLayers); err != nil {
+		t.Fatalf("unmarshal context layers: %v", err)
+	}
+	if contextLayers.SchemaVersion != "kh.context-layers.v1" || contextLayers.Request.Goal == "" || contextLayers.SliceLocal.ExecutionSliceID == "" || contextLayers.RuntimeControl.TaskGraphPath == "" {
+		t.Fatalf("unexpected context layers contract: %+v", contextLayers)
+	}
+
+	var takeover struct {
+		SchemaVersion       string   `json:"schemaVersion"`
+		ContextLayersPath   string   `json:"contextLayersPath"`
+		TaskGraphPath       string   `json:"taskGraphPath"`
+		HandoffContractPath string   `json:"handoffContractPath"`
+		ReadOrder           []string `json:"readOrder"`
+	}
+	if payload, err := os.ReadFile(filepath.Join(bundle.ArtifactDir, "takeover-context.json")); err != nil {
+		t.Fatalf("read takeover context: %v", err)
+	} else if err := json.Unmarshal(payload, &takeover); err != nil {
+		t.Fatalf("unmarshal takeover context: %v", err)
+	}
+	if takeover.SchemaVersion != "kh.multi-session-continuation.v1" || takeover.ContextLayersPath == "" || takeover.TaskGraphPath == "" || takeover.HandoffContractPath == "" || len(takeover.ReadOrder) == 0 {
+		t.Fatalf("unexpected continuation protocol: %+v", takeover)
 	}
 }
 

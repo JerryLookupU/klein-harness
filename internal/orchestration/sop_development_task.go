@@ -2,6 +2,7 @@ package orchestration
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 
 	"klein-harness/internal/adapter"
@@ -38,18 +39,22 @@ func CompileDevelopmentTask(task adapter.Task) CompiledFlow {
 	arch := ExtractDevelopmentArchitectureContract(task)
 	iface := ExtractDevelopmentInterfaceContract(task)
 	tasks := CompileDevelopmentTaskGraph(task, req, arch, iface)
+	family := developmentFlowFamily(task)
+	directPass := len(tasks) == 1
 	return CompiledFlow{
-		Family:               TaskFamilyDevelopmentTask,
+		Family:               family,
 		SOPID:                SOPDevelopmentTaskV1,
 		RequirementSpec:      req,
 		ArchitectureContract: arch,
 		InterfaceContract:    iface,
 		ExecutionTasks:       tasks,
 		SharedFlowContext: SharedFlowContext{
-			TaskFamily:      TaskFamilyDevelopmentTask,
+			TaskFamily:      family,
 			SOPID:           SOPDevelopmentTaskV1,
 			Summary:         strings.TrimSpace(coalesce(task.Description, task.Summary, task.Title)),
-			BoundarySummary: uniqueStrings(append([]string{"程序冻结 requirement / architecture / interface contract", "worker 只执行当前开发 slice"}, task.OwnedPaths...)),
+			CompiledPhases:  []string{"requirement_spec", "architecture_contract", "interface_contract", "task_graph_compile", "worker_execute", "integration_verify", "closeout"},
+			DirectPass:      directPass,
+			BoundarySummary: uniqueStrings(append(append([]string{"程序冻结 requirement / architecture / interface contract", "worker 只执行当前开发 slice"}, developmentTaskBoundaryNotes(family, directPass)...), task.OwnedPaths...)),
 		},
 		SharedTaskGroupContext: &SharedTaskGroupContext{
 			GroupID: task.TaskID + ".group",
@@ -64,6 +69,27 @@ func CompileDevelopmentTask(task adapter.Task) CompiledFlow {
 			},
 		},
 	}
+}
+
+func developmentFlowFamily(task adapter.Task) TaskFamily {
+	family := TaskFamily(task.TaskFamily)
+	switch family {
+	case TaskFamilyBugfixSmall, TaskFamilyFeatureModule, TaskFamilyFeatureSystem, TaskFamilyDevelopmentTask, TaskFamilyIntegrationExternal, TaskFamilyRepairOrResume:
+		return family
+	default:
+		return TaskFamilyDevelopmentTask
+	}
+}
+
+func developmentTaskBoundaryNotes(family TaskFamily, directPass bool) []string {
+	notes := []string{}
+	if family != TaskFamilyDevelopmentTask && family != "" {
+		notes = append(notes, "runtime 保留原始 task family="+string(family))
+	}
+	if directPass {
+		notes = append(notes, "当前任务启用 single slice direct pass")
+	}
+	return notes
 }
 
 func ExtractDevelopmentRequirementSpec(task adapter.Task) *DevelopmentRequirementSpec {
@@ -120,35 +146,198 @@ func ExtractDevelopmentInterfaceContract(task adapter.Task) *DevelopmentInterfac
 
 func CompileDevelopmentTaskGraph(task adapter.Task, req *DevelopmentRequirementSpec, arch *DevelopmentArchitectureContract, iface *DevelopmentInterfaceContract) []ExecutionTask {
 	short := strings.TrimSpace(coalesce(task.Title, task.TaskID))
-	slices := []ExecutionTask{
+	if shouldUseSingleSliceDirectPass(task, arch, iface) {
+		return []ExecutionTask{
+			{
+				ID:            fmt.Sprintf("%s.slice.1", task.TaskID),
+				Title:         "单 slice 直通",
+				Summary:       fmt.Sprintf("在受控边界内直接完成 `%s` 的实现、验证与收口。", short),
+				TaskGroupID:   task.TaskID + ".group",
+				BatchLabel:    "direct-pass",
+				OutputTargets: uniqueStrings(arch.AffectedPaths),
+				DoneCriteria:  []string{"代码实现完成", "验证命令已记录", "closeout artifacts 完整"},
+			},
+		}
+	}
+	requirements := developmentRequirementLines(task)
+	if len(requirements) > 0 {
+		slices := make([]ExecutionTask, 0, len(requirements)+1)
+		if title := strings.TrimSpace(task.Title); title != "" {
+			slices = append(slices, ExecutionTask{
+				ID:           fmt.Sprintf("%s.slice.1", task.TaskID),
+				Title:        title,
+				Summary:      fmt.Sprintf("建立主任务骨架并稳定任务命名，确保后续规划、追加需求和执行链都挂在同一主线上。 | %s", title),
+				TaskGroupID:  task.TaskID + ".group",
+				BatchLabel:   "anchor",
+				DoneCriteria: []string{"主任务骨架稳定", "验证证据已记录"},
+			})
+		}
+		for index, requirement := range requirements {
+			slices = append(slices, ExecutionTask{
+				ID:            fmt.Sprintf("%s.slice.%d", task.TaskID, len(slices)+1),
+				Title:         fmt.Sprintf("%s [%d]", semanticDevelopmentTaskTitle(task, requirement), index+1),
+				Summary:       requirement,
+				TaskGroupID:   task.TaskID + ".group",
+				BatchLabel:    "semantic",
+				OutputTargets: uniqueStrings(arch.AffectedPaths),
+				DoneCriteria:  []string{"requirement intent is reflected in runtime artifacts", "verification evidence recorded", "closeout artifacts written"},
+			})
+		}
+		return slices
+	}
+	return []ExecutionTask{
 		{
-			ID:           fmt.Sprintf("%s.slice.1", task.TaskID),
-			Title:        "建立需求与结构合同",
-			Summary:      fmt.Sprintf("冻结 `%s` 的 requirement / architecture / interface contract。", short),
-			TaskGroupID:  task.TaskID + ".group",
-			BatchLabel:   "contracts",
-			DoneCriteria: []string{"需求合同冻结", "架构合同冻结", "接口合同冻结"},
-		},
-		{
-			ID:            fmt.Sprintf("%s.slice.2", task.TaskID),
-			Title:         "实现当前开发切片",
-			Summary:       fmt.Sprintf("在受控边界内实现 `%s`。", short),
+			ID:            fmt.Sprintf("%s.slice.1", task.TaskID),
+			Title:         coalesce(task.Title, task.TaskID),
+			Summary:       fmt.Sprintf("在受控边界内推进 `%s`，并把验证与 closeout 收口在同一 slice。", short),
 			TaskGroupID:   task.TaskID + ".group",
-			BatchLabel:    "implementation",
+			BatchLabel:    "bounded",
 			OutputTargets: uniqueStrings(arch.AffectedPaths),
-			DoneCriteria:  []string{"代码实现完成", "验证命令已记录"},
-		},
-		{
-			ID:           fmt.Sprintf("%s.slice.3", task.TaskID),
-			Title:        "完成验证与收口",
-			Summary:      "基于 verify skeleton 完成集成验证和 closeout。",
-			TaskGroupID:  task.TaskID + ".group",
-			BatchLabel:   "closeout",
-			DoneCriteria: []string{"verify evidence 完整", "handoff 完整"},
+			DoneCriteria:  uniqueStrings(append([]string{"bounded change applied", "verification evidence recorded", "closeout artifacts written"}, req.SuccessCriteria...)),
 		},
 	}
-	if len(req.InScope) == 0 && len(iface.APIEndpoints) == 0 {
-		slices = slices[:2]
+}
+
+func shouldUseSingleSliceDirectPass(task adapter.Task, arch *DevelopmentArchitectureContract, iface *DevelopmentInterfaceContract) bool {
+	family := developmentFlowFamily(task)
+	if family == TaskFamilyBugfixSmall || family == TaskFamilyRepairOrResume {
+		return true
 	}
-	return slices
+	if len(arch.NewPaths) == 0 && len(arch.AffectedPaths) <= 1 && len(iface.APIEndpoints) == 0 {
+		return true
+	}
+	return false
+}
+
+func developmentRequirementLines(task adapter.Task) []string {
+	lines := strings.Split(strings.ReplaceAll(task.Summary+"\n"+task.Description, "\r\n", "\n"), "\n")
+	requirements := explicitDevelopmentRequirementLines(lines)
+	if len(requirements) > 0 {
+		return requirements
+	}
+	return inlineDevelopmentRequirementLines(lines)
+}
+
+func explicitDevelopmentRequirementLines(lines []string) []string {
+	requirementRE := regexp.MustCompile(`^(?:\d+[\.\)、:：-]*|[-*•]+)\s*`)
+	requirements := make([]string, 0, len(lines))
+	for _, raw := range lines {
+		line := strings.TrimSpace(raw)
+		if line == "" {
+			continue
+		}
+		lower := strings.ToLower(line)
+		if lower == "要求" || lower == "requirements" || lower == "requirement" {
+			continue
+		}
+		if !requirementRE.MatchString(line) {
+			continue
+		}
+		line = strings.TrimSpace(requirementRE.ReplaceAllString(line, ""))
+		line = strings.Trim(line, "：:;；")
+		if line == "" {
+			continue
+		}
+		requirements = append(requirements, line)
+	}
+	return uniqueStrings(requirements)
+}
+
+func inlineDevelopmentRequirementLines(lines []string) []string {
+	requirements := make([]string, 0, len(lines))
+	for _, raw := range lines {
+		line := normalizeDevelopmentRequirementLine(raw)
+		if line == "" {
+			continue
+		}
+		if part := splitDevelopmentNeedToDisplayRequirement(line); part != "" {
+			requirements = append(requirements, part)
+			continue
+		}
+		if parts := splitDevelopmentDisplayRequirements(line); len(parts) > 0 {
+			requirements = append(requirements, parts...)
+			continue
+		}
+	}
+	return uniqueStrings(requirements)
+}
+
+func normalizeDevelopmentRequirementLine(raw string) string {
+	line := strings.TrimSpace(raw)
+	for _, prefix := range []string{"补充：", "补充:", "说明：", "说明:", "要求：", "要求:"} {
+		line = strings.TrimPrefix(line, prefix)
+	}
+	line = strings.TrimSpace(line)
+	if line == "" {
+		return ""
+	}
+	lower := strings.ToLower(line)
+	if lower == "要求" || lower == "requirements" || lower == "requirement" {
+		return ""
+	}
+	return line
+}
+
+func splitDevelopmentDisplayRequirements(line string) []string {
+	patterns := []string{"展示", "显示", "包括", "包含"}
+	for _, marker := range patterns {
+		index := strings.Index(line, marker)
+		if index < 0 {
+			continue
+		}
+		remainder := strings.TrimSpace(strings.TrimLeft(line[index+len(marker):], "：:，, "))
+		if remainder == "" {
+			return nil
+		}
+		parts := strings.FieldsFunc(remainder, func(r rune) bool {
+			return strings.ContainsRune("、；;|", r)
+		})
+		out := make([]string, 0, len(parts))
+		for _, part := range parts {
+			part = strings.TrimSpace(part)
+			if part == "" || strings.HasPrefix(part, "本次先") || strings.Contains(part, "不修改业务代码") {
+				continue
+			}
+			out = append(out, marker+" "+part)
+		}
+		if len(out) > 0 {
+			return out
+		}
+	}
+	return nil
+}
+
+func splitDevelopmentNeedToDisplayRequirement(line string) string {
+	for _, marker := range []string{"需要把", "需要将"} {
+		index := strings.Index(line, marker)
+		if index < 0 {
+			continue
+		}
+		part := strings.TrimSpace(line[index+len(marker):])
+		part = strings.TrimSuffix(part, "也显式展示在 dashboard 里")
+		part = strings.TrimSuffix(part, "显式展示在 dashboard 里")
+		part = strings.TrimSuffix(part, "展示在 dashboard 里")
+		part = strings.TrimSuffix(part, "也展示在 dashboard 里")
+		part = strings.Trim(part, "。")
+		if part == "" {
+			return ""
+		}
+		return marker + part
+	}
+	return ""
+}
+
+func semanticDevelopmentTaskTitle(task adapter.Task, requirement string) string {
+	switch {
+	case strings.Contains(requirement, "planner/judge"):
+		return coalesce(task.Title, "展示 planner/judge")
+	case strings.Contains(requirement, "tasklist"), strings.Contains(requirement, "checklist"):
+		return coalesce(task.Title, "展示 tasklist/checklist")
+	case strings.Contains(requirement, "tmux"), strings.Contains(requirement, "worker"):
+		return coalesce(task.Title, "展示 tmux worker 链路")
+	case strings.Contains(requirement, "token"):
+		return coalesce(task.Title, "展示 token 热区")
+	default:
+		return coalesce(task.Title, task.TaskID)
+	}
 }
