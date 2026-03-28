@@ -28,11 +28,24 @@ type PlannerCandidate struct {
 }
 
 type JudgeAgent struct {
-	ID         string   `json:"id"`
-	Name       string   `json:"name"`
-	Focus      string   `json:"focus"`
-	PromptRef  string   `json:"promptRef"`
-	Dimensions []string `json:"dimensions"`
+	ID               string              `json:"id"`
+	Name             string              `json:"name"`
+	Focus            string              `json:"focus"`
+	PromptRef        string              `json:"promptRef"`
+	SkillPath        string              `json:"skillPath,omitempty"`
+	ActiveSkills     []string            `json:"activeSkills,omitempty"`
+	SkillHints       []string            `json:"skillHints,omitempty"`
+	CoreCapabilities []string            `json:"coreCapabilities,omitempty"`
+	ToolContracts    []JudgeToolContract `json:"toolContracts,omitempty"`
+	Dimensions       []string            `json:"dimensions"`
+}
+
+type JudgeToolContract struct {
+	ID      string `json:"id"`
+	Purpose string `json:"purpose"`
+	When    string `json:"when"`
+	Output  string `json:"output"`
+	Source  string `json:"source"`
 }
 
 type PacketSynthesisLoop struct {
@@ -138,6 +151,7 @@ func PromptFiles() []string {
 		"planner-delivery.md",
 		"planner-risk.md",
 		"judge.md",
+		"judge-tools.md",
 	}
 }
 
@@ -161,6 +175,7 @@ func PromptRefs(root string) map[string]string {
 		"plannerDelivery":          filepath.Join(dir, "planner-delivery.md"),
 		"plannerRisk":              filepath.Join(dir, "planner-risk.md"),
 		"judgePrompt":              filepath.Join(dir, "judge.md"),
+		"judgeToolsGuide":          filepath.Join(dir, "judge-tools.md"),
 	}
 }
 
@@ -191,8 +206,54 @@ func DefaultPacketSynthesisLoop(root string) PacketSynthesisLoop {
 		Judge: JudgeAgent{
 			ID:        "packet-judge",
 			Name:      "Packet Judge",
-			Focus:     "Choose one packet candidate and format final execution-ready worker-spec slices",
+			Focus:     "Compile one execution-ready task graph from planner outputs, shared spec, and dependency lineage",
 			PromptRef: filepath.Join(promptsDir, "judge.md"),
+			SkillPath: filepath.Join(root, "skills", "judge-task-compiler", "SKILL.md"),
+			ActiveSkills: []string{
+				"judge-task-compiler",
+				"blueprint-architect",
+			},
+			SkillHints: []string{
+				"normalize planner outputs before deciding execution tasks",
+				"freeze shared spec and constraints before fanout",
+				"split same-type repeated work into one object per worker whenever the object roster is known",
+				"keep worker handoff to background, constraints, shared spec, current task body, and closeout requirements",
+			},
+			CoreCapabilities: []string{
+				"blueprint_decomposition",
+				"swarm_assembly",
+				"lineage_orchestration",
+			},
+			ToolContracts: []JudgeToolContract{
+				{
+					ID:      "collect_b3ehive_outputs",
+					Purpose: "collect planner and swarm outputs into clean, source-tagged inputs for judging",
+					When:    "before blueprint decomposition when multiple agent outputs or partial artifacts exist",
+					Output:  "normalized planner outputs with sourceAgent, input summary, and evidence handles",
+					Source:  filepath.Join(promptsDir, "judge-tools.md"),
+				},
+				{
+					ID:      "extract_spec_constraints",
+					Purpose: "extract roster, file contract, schema fields, source policy, and hard constraints",
+					When:    "when the request or planner outputs contain reusable shared requirements",
+					Output:  "shared spec object and constraint bundle ready for packet.sharedContext",
+					Source:  filepath.Join(promptsDir, "judge-tools.md"),
+				},
+				{
+					ID:      "synthesize_task_graph",
+					Purpose: "compile shared spec into execution tasks, dependencies, and fanout groups",
+					When:    "after roster or entity scope is known well enough to materialize dispatchable work",
+					Output:  "task list, DAG edges, parallel groups, and orchestration expansion decision",
+					Source:  filepath.Join(promptsDir, "judge-tools.md"),
+				},
+				{
+					ID:      "validate_dispatch_contracts",
+					Purpose: "ensure every execution task has clear inputs, outputs, done criteria, and evidence requirements",
+					When:    "before finalizing finalPacket and finalWorkerSpecCandidates",
+					Output:  "validated dispatch contracts with missing-field or ambiguity findings",
+					Source:  filepath.Join(promptsDir, "judge-tools.md"),
+				},
+			},
 			Dimensions: []string{
 				"packet_clarity",
 				"repo_fit",
@@ -675,6 +736,27 @@ func RenderPlanningTrace(taskID, threadKey string, planEpoch int, resumeStrategy
 		fmt.Sprintf("- focus: %s", loop.Judge.Focus),
 		fmt.Sprintf("- promptRef: %s", loop.Judge.PromptRef),
 	)
+	if loop.Judge.SkillPath != "" {
+		lines = append(lines, fmt.Sprintf("- skillPath: %s", loop.Judge.SkillPath))
+	}
+	if len(loop.Judge.ActiveSkills) > 0 {
+		lines = append(lines, fmt.Sprintf("- activeSkills: %s", strings.Join(loop.Judge.ActiveSkills, ", ")))
+	}
+	if len(loop.Judge.CoreCapabilities) > 0 {
+		lines = append(lines, fmt.Sprintf("- coreCapabilities: %s", strings.Join(loop.Judge.CoreCapabilities, ", ")))
+	}
+	for _, hint := range loop.Judge.SkillHints {
+		lines = append(lines, fmt.Sprintf("- skillHint: %s", hint))
+	}
+	for _, contract := range loop.Judge.ToolContracts {
+		lines = append(lines,
+			fmt.Sprintf("- toolContract: %s", contract.ID),
+			fmt.Sprintf("  purpose: %s", contract.Purpose),
+			fmt.Sprintf("  when: %s", contract.When),
+			fmt.Sprintf("  output: %s", contract.Output),
+			fmt.Sprintf("  source: %s", contract.Source),
+		)
+	}
 	if len(loop.Judge.Dimensions) > 0 {
 		lines = append(lines, fmt.Sprintf("- dimensions: %s", strings.Join(loop.Judge.Dimensions, ", ")))
 	}

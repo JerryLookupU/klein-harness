@@ -28,6 +28,24 @@ func TestDefaultPacketSynthesisLoop(t *testing.T) {
 	if got := loop.Planners[0].PromptRef; got != filepath.Join(root, "prompts", "spec", "planner-architecture.md") {
 		t.Fatalf("unexpected planner prompt ref: %s", got)
 	}
+	if got := loop.Judge.SkillPath; got != filepath.Join(root, "skills", "judge-task-compiler", "SKILL.md") {
+		t.Fatalf("unexpected judge skill path: %s", got)
+	}
+	if !containsStringValue(loop.Judge.ActiveSkills, "judge-task-compiler") || !containsStringValue(loop.Judge.ActiveSkills, "blueprint-architect") {
+		t.Fatalf("expected judge active skills, got %+v", loop.Judge.ActiveSkills)
+	}
+	if len(loop.Judge.CoreCapabilities) != 3 {
+		t.Fatalf("expected judge core capabilities, got %+v", loop.Judge.CoreCapabilities)
+	}
+	if len(loop.Judge.ToolContracts) != 4 {
+		t.Fatalf("expected judge tool contracts, got %+v", loop.Judge.ToolContracts)
+	}
+	if loop.Judge.ToolContracts[0].Source != filepath.Join(root, "prompts", "spec", "judge-tools.md") {
+		t.Fatalf("unexpected judge tool source: %+v", loop.Judge.ToolContracts[0])
+	}
+	if refs := PromptRefs(root); refs["judgeToolsGuide"] != filepath.Join(root, "prompts", "spec", "judge-tools.md") {
+		t.Fatalf("expected judge tools prompt ref, got %+v", refs)
+	}
 }
 
 func TestDefaultConstraintSystem(t *testing.T) {
@@ -78,6 +96,7 @@ func TestDefaultTopLevelPromptLoadsPromptDirectory(t *testing.T) {
 		"prompts/spec/tasks.md",
 		"prompts/spec/worker-spec.md",
 		"prompts/spec/judge.md",
+		"prompts/spec/judge-tools.md",
 		"executionTasks",
 	} {
 		if !strings.Contains(prompt, want) {
