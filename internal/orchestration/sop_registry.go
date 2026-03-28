@@ -67,20 +67,21 @@ func ClassifyTaskFamily(kind, goal string, contexts []string) (TaskFamily, strin
 		return TaskFamilyReviewOrAudit, ""
 	case hasAny(lower, "resume", "repair", "恢复", "重试", "断点", "继续执行"):
 		return TaskFamilyRepairOrResume, ""
+	case looksLikeRepeatedEntityCorpus(lower):
+		return TaskFamilyRepeatedEntityCorpus, SOPRepeatedEntityCorpusV1
+	case looksLikeSingleArtifactGeneration(lower):
+		return TaskFamilySingleArtifact, ""
 	case hasAny(lower, "integration", "third-party", "第三方", "支付", "oauth", "sso", "接入"):
 		return TaskFamilyIntegrationExternal, SOPDevelopmentTaskV1
 	case hasAny(lower, "bug", "fix", "regression", "error", "failure", "报错", "修复"):
 		return TaskFamilyBugfixSmall, SOPDevelopmentTaskV1
-	case hasAny(lower, "system", "架构", "framework", "pipeline", "引擎", "flow"):
+	case hasAny(lower, "system", "架构", "framework", "pipeline", "引擎", "flow", "runtime", "orchestrator", "harness", "编排", "调度"):
 		return TaskFamilyFeatureSystem, SOPDevelopmentTaskV1
-	case hasAny(lower, "prd", "需求", "接口", "联调", "测试", "开发", "refactor", "重构"):
-		return TaskFamilyDevelopmentTask, SOPDevelopmentTaskV1
-	case hasAny(lower, "module", "模块", "组件", "page", "页面"):
+	case hasAny(lower, "module", "模块", "组件", "page", "页面", "dashboard", "view", "panel", "sidebar") &&
+		!hasAny(lower, "需求", "接口", "联调", "测试", "architecture", "contract", "workflow"):
 		return TaskFamilyFeatureModule, SOPDevelopmentTaskV1
-	case looksLikeRepeatedEntityCorpus(lower):
-		return TaskFamilyRepeatedEntityCorpus, SOPRepeatedEntityCorpusV1
-	case hasAny(lower, "markdown", "文档", "报告", "单文档", "single artifact"):
-		return TaskFamilySingleArtifact, ""
+	case hasAny(lower, "prd", "需求", "接口", "联调", "测试", "开发", "refactor", "重构", "实现", "新增", "添加"):
+		return TaskFamilyDevelopmentTask, SOPDevelopmentTaskV1
 	default:
 		return TaskFamilyDevelopmentTask, SOPDevelopmentTaskV1
 	}
@@ -91,6 +92,16 @@ func looksLikeRepeatedEntityCorpus(lower string) bool {
 		return true
 	}
 	return hasAny(lower, " 位", " 个", " 名") && hasAny(lower, "markdown", "文档", "生成")
+}
+
+func looksLikeSingleArtifactGeneration(lower string) bool {
+	if hasAny(lower, "single artifact", "单文档", "单文件", "single document", "single file") {
+		return true
+	}
+	if hasAny(lower, "markdown", "文档", "报告", "总结", "memo") && !looksLikeRepeatedEntityCorpus(lower) {
+		return !hasAny(lower, "模块", "系统", "修复", "接入", "页面", "组件")
+	}
+	return false
 }
 
 func hasAny(haystack string, needles ...string) bool {

@@ -43,6 +43,11 @@
 - `repair_or_resume`
 
 第一版已接入 runtime submit 分类，并把 `taskFamily` / `sopId` 写入 request record、task、request summary、intake summary、change summary。
+同时 route gate 已显式读到 `taskFamily` / `sopId`：
+
+- `repeated_entity_corpus` 会挂上 shared-spec-frozen / programmatic-verify-first 策略信号
+- `development_task` 及其子 family 会挂上 compiled-contract-first 策略信号
+- family 不再只是 submit metadata，而是 dispatch 前就进入 route policy
 
 ## 上下文四层模型
 
@@ -110,6 +115,7 @@
 - `slice-context.json`
 - `context-layers.json`
 - `verify-skeleton.json`
+- `closeout-skeleton.json`
 - `handoff-contract.json`
 - `takeover-context.json`
 
@@ -141,6 +147,7 @@ worker 负责：
 - `slice-context.json`
 - `context-layers.json`
 - `verify-skeleton.json`
+- `closeout-skeleton.json`
 - `handoff-contract.json`
 - `takeover-context.json`
 
@@ -174,7 +181,13 @@ prompt 默认引导 worker 先看：
 ## Verify / Closeout 机制
 
 第一版增加程序化 `verify-skeleton.json`，避免 worker 输出空对象。
-同时增加程序化 `handoff-contract.json`，把 handoff 必填段落和 resume read order 固定下来。
+同时增加程序化 `closeout-skeleton.json` 与 `handoff-contract.json`，把 closeout / handoff 必填段落和 resume read order 固定下来。
+
+runtime 侧额外增加一条硬闸门：
+
+- `verify.json` 如果是空对象 `{}`，会被视为失败
+- `verify.json` 至少要提供 status / summary / scorecard / evidenceLedger 等可用信号之一
+- 这样 “写了个 JSON 文件但没有验证内容” 不会再误判为通过
 
 对 repeated corpus，程序应优先检查：
 
@@ -203,6 +216,7 @@ prompt 默认引导 worker 先看：
 - `slice-context.json`
 - `task-graph.json`
 - `verify-skeleton.json`
+- `closeout-skeleton.json`
 - `handoff-contract.json`
 - `takeover-context.json`
 - `handoff.md`
@@ -224,8 +238,9 @@ prompt 默认引导 worker 先看：
 2. `shared-flow-context.json`
 3. `slice-context.json`
 4. `verify-skeleton.json`
-5. `handoff-contract.json`
-6. `handoff.md`
+5. `closeout-skeleton.json`
+6. `handoff-contract.json`
+7. `handoff.md`
 
 ## 渐进迁移
 

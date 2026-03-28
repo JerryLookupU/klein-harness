@@ -53,6 +53,8 @@ func TestEvaluateBugRequestAddsDebuggingPolicy(t *testing.T) {
 		TaskID:                 "T-bug",
 		RoleHint:               "worker",
 		Kind:                   "bug",
+		TaskFamily:             "bugfix_small",
+		SOPID:                  "sop.development_task.v1",
 		Title:                  "Fix regression after verify failure",
 		Summary:                "Unexpected error in route dispatch",
 		PlanEpoch:              1,
@@ -63,11 +65,37 @@ func TestEvaluateBugRequestAddsDebuggingPolicy(t *testing.T) {
 	})
 	for _, want := range []string{
 		"policy_bug_rca_first",
+		"policy_compiled_contract_first",
 		"policy_verify_evidence_required",
 		"policy_review_if_multi_file_or_high_risk",
 	} {
 		if !containsReason(decision.ReasonCodes, want) {
 			t.Fatalf("bug decision missing %q: %+v", want, decision.ReasonCodes)
+		}
+	}
+}
+
+func TestEvaluateRepeatedEntityCorpusAddsProgrammaticPolicies(t *testing.T) {
+	decision := Evaluate(Input{
+		TaskID:                 "T-corpus",
+		RoleHint:               "worker",
+		Kind:                   "generate",
+		TaskFamily:             "repeated_entity_corpus",
+		SOPID:                  "sop.repeated_entity_corpus.v1",
+		Title:                  "Generate the frozen entity corpus",
+		Summary:                "Compile repeated entity corpus slices",
+		PlanEpoch:              1,
+		LatestPlanEpoch:        1,
+		WorktreePath:           ".worktrees/T-corpus",
+		OwnedPaths:             []string{"rundata/generated-corpus/**"},
+		RequiredSummaryVersion: "state.v1",
+	})
+	for _, want := range []string{
+		"policy_shared_spec_frozen",
+		"policy_programmatic_verify_first",
+	} {
+		if !containsReason(decision.ReasonCodes, want) {
+			t.Fatalf("repeated-entity decision missing %q: %+v", want, decision.ReasonCodes)
 		}
 	}
 }

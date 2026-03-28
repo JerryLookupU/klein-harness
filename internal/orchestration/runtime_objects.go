@@ -147,6 +147,7 @@ type TaskContract struct {
 	SliceContextPath      string                      `json:"sliceContextPath,omitempty"`
 	ContextLayersPath     string                      `json:"contextLayersPath,omitempty"`
 	VerifySkeletonPath    string                      `json:"verifySkeletonPath,omitempty"`
+	CloseoutSkeletonPath  string                      `json:"closeoutSkeletonPath,omitempty"`
 	HandoffContractPath   string                      `json:"handoffContractPath,omitempty"`
 }
 

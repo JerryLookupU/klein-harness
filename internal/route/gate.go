@@ -10,6 +10,8 @@ type Input struct {
 	TaskID                    string
 	RoleHint                  string
 	Kind                      string
+	TaskFamily                string
+	SOPID                     string
 	Title                     string
 	Summary                   string
 	FrontDoorTriage           string
@@ -142,6 +144,8 @@ func policyReasonCodes(input Input) []string {
 	}
 	signal := strings.ToLower(strings.TrimSpace(strings.Join([]string{
 		input.Kind,
+		input.TaskFamily,
+		input.SOPID,
 		input.Title,
 		input.Summary,
 	}, " ")))
@@ -189,6 +193,15 @@ func policyReasonCodes(input Input) []string {
 	if input.ResumeStrategy == "resume" || input.PreferredResumeSessionID != "" || len(input.CandidateResumeSessionIDs) > 0 ||
 		matchesSignal(signal, "continue", "resume", "pick up", "keep going", "continue from", "continued from") {
 		tags = append(tags, "policy_resume_state_first")
+	}
+	switch input.TaskFamily {
+	case "repeated_entity_corpus":
+		tags = append(tags,
+			"policy_shared_spec_frozen",
+			"policy_programmatic_verify_first",
+		)
+	case "development_task", "bugfix_small", "feature_module", "feature_system", "integration_external", "repair_or_resume":
+		tags = append(tags, "policy_compiled_contract_first")
 	}
 	return uniqueReasonCodes(tags)
 }

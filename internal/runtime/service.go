@@ -1060,6 +1060,8 @@ func BuildRouteInput(root string, task adapter.Task, latestPlanEpoch int, checkp
 		TaskID:                    task.TaskID,
 		RoleHint:                  task.RoleHint,
 		Kind:                      task.Kind,
+		TaskFamily:                task.TaskFamily,
+		SOPID:                     task.SOPID,
 		Title:                     task.Title,
 		Summary:                   strings.TrimSpace(strings.Join([]string{task.Summary, task.Description}, "\n")),
 		FrontDoorTriage:           requestRecord.FrontDoorTriage,
@@ -1506,6 +1508,9 @@ func deriveVerification(artifactDir, burstStatus, burstSummary string) (string, 
 	if err := json.Unmarshal(payload, &decoded); err != nil {
 		return "failed", "verification artifact is invalid JSON", verifyPath
 	}
+	if !verifyArtifactHasSignal(decoded) {
+		return "failed", "verification artifact is empty or lacks usable evidence", verifyPath
+	}
 	summary := coalesce(stringValue(decoded["overallSummary"]), stringValue(decoded["summary"]), burstSummary, "verification completed")
 	status := strings.ToLower(strings.TrimSpace(stringValue(decoded["status"])))
 	overall := strings.ToLower(strings.TrimSpace(stringValue(decoded["overallStatus"])))
@@ -1522,6 +1527,30 @@ func deriveVerification(artifactDir, burstStatus, burstSummary string) (string, 
 
 func DeriveVerification(artifactDir, burstStatus, burstSummary string) (string, string, string) {
 	return deriveVerification(artifactDir, burstStatus, burstSummary)
+}
+
+func verifyArtifactHasSignal(decoded map[string]any) bool {
+	if len(decoded) == 0 {
+		return false
+	}
+	for _, key := range []string{"overallStatus", "status", "result", "overallSummary", "summary"} {
+		if strings.TrimSpace(stringValue(decoded[key])) != "" {
+			return true
+		}
+	}
+	for _, key := range []string{"scorecard", "evidenceLedger", "findings", "reviewChecklist", "commands"} {
+		switch value := decoded[key].(type) {
+		case []any:
+			if len(value) > 0 {
+				return true
+			}
+		case map[string]any:
+			if len(value) > 0 {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func ownedPathViolation(artifactDir string, ownedPaths []string) (string, bool) {

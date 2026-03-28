@@ -12,32 +12,33 @@ import (
 )
 
 type PromptCompileInput struct {
-	TicketPath          string
-	WorkerSpecPath      string
-	AcceptedPacketPath  string
-	TaskContractPath    string
-	TaskGraphPath       string
-	ContextLayersPath   string
-	RequestContextPath  string
-	RuntimeContextPath  string
-	PlanningTracePath   string
-	ConstraintPath      string
-	SharedContextPath   string
-	SharedFlowPath      string
-	SliceContextPath    string
-	VerifySkeletonPath  string
-	HandoffContractPath string
-	TakeoverPath        string
-	ArtifactDir         string
-	FeedbackSummaryPath string
-	Task                adapter.Task
-	Ticket              dispatch.Ticket
-	ExecutionLoop       orchestration.ExecutionLoopContract
-	HookPlan            verify.HookPlan
-	TaskFeedback        *verify.TaskFeedbackSummary
-	ConstraintSystem    orchestration.ConstraintSystem
-	SharedFlowContext   orchestration.SharedFlowContext
-	SliceContext        orchestration.SliceLocalContext
+	TicketPath           string
+	WorkerSpecPath       string
+	AcceptedPacketPath   string
+	TaskContractPath     string
+	TaskGraphPath        string
+	ContextLayersPath    string
+	RequestContextPath   string
+	RuntimeContextPath   string
+	PlanningTracePath    string
+	ConstraintPath       string
+	SharedContextPath    string
+	SharedFlowPath       string
+	SliceContextPath     string
+	VerifySkeletonPath   string
+	CloseoutSkeletonPath string
+	HandoffContractPath  string
+	TakeoverPath         string
+	ArtifactDir          string
+	FeedbackSummaryPath  string
+	Task                 adapter.Task
+	Ticket               dispatch.Ticket
+	ExecutionLoop        orchestration.ExecutionLoopContract
+	HookPlan             verify.HookPlan
+	TaskFeedback         *verify.TaskFeedbackSummary
+	ConstraintSystem     orchestration.ConstraintSystem
+	SharedFlowContext    orchestration.SharedFlowContext
+	SliceContext         orchestration.SliceLocalContext
 }
 
 func CompileWorkerPrompt(input PromptCompileInput) string {
@@ -71,6 +72,7 @@ func CompileWorkerPrompt(input PromptCompileInput) string {
 		fmt.Sprintf("- %s", input.SharedFlowPath),
 		fmt.Sprintf("- %s", input.SliceContextPath),
 		fmt.Sprintf("- %s", input.VerifySkeletonPath),
+		fmt.Sprintf("- %s", input.CloseoutSkeletonPath),
 		fmt.Sprintf("- %s", input.HandoffContractPath),
 		fmt.Sprintf("- %s", input.TaskContractPath),
 		"",
@@ -176,6 +178,7 @@ func CompileWorkerPrompt(input PromptCompileInput) string {
 		"",
 		"Verification and closeout:",
 		fmt.Sprintf("- Read verify skeleton: %s", input.VerifySkeletonPath),
+		fmt.Sprintf("- Read closeout skeleton: %s", input.CloseoutSkeletonPath),
 		"- Record command evidence and output evidence in verify.json.",
 		fmt.Sprintf("- Before exit write: %s, %s, %s", filepath.Join(input.ArtifactDir, "worker-result.json"), filepath.Join(input.ArtifactDir, "verify.json"), filepath.Join(input.ArtifactDir, "handoff.md")),
 		"- Before exit, if any required closeout artifact is missing, stop editing and write the missing artifact first.",
@@ -191,6 +194,7 @@ func CompileWorkerPrompt(input PromptCompileInput) string {
 		fmt.Sprintf("- request context: %s", input.RequestContextPath),
 		fmt.Sprintf("- runtime control context: %s", input.RuntimeContextPath),
 		fmt.Sprintf("- handoff contract: %s", input.HandoffContractPath),
+		fmt.Sprintf("- closeout skeleton: %s", input.CloseoutSkeletonPath),
 		fmt.Sprintf("- takeover contract: %s", input.TakeoverPath),
 		"",
 		"Hookified verification flow:",

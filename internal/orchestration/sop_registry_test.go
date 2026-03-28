@@ -20,13 +20,30 @@ func TestDefaultSOPRegistryLookup(t *testing.T) {
 }
 
 func TestClassifyTaskFamily(t *testing.T) {
-	family, sopID := ClassifyTaskFamily("", "生成 10 个世界上最伟大的程序员 markdown 文档，每个人不少于 2000 字", nil)
-	if family != TaskFamilyRepeatedEntityCorpus || sopID != SOPRepeatedEntityCorpusV1 {
-		t.Fatalf("expected repeated entity corpus classification, got family=%s sop=%s", family, sopID)
+	cases := []struct {
+		name   string
+		kind   string
+		goal   string
+		family TaskFamily
+		sopID  string
+	}{
+		{name: "repeated entity corpus", goal: "生成 10 个世界上最伟大的程序员 markdown 文档，每个人不少于 2000 字", family: TaskFamilyRepeatedEntityCorpus, sopID: SOPRepeatedEntityCorpusV1},
+		{name: "single artifact", goal: "生成单文档架构总结报告", family: TaskFamilySingleArtifact},
+		{name: "bugfix small", kind: "bug", goal: "修复 runtime verify 报错", family: TaskFamilyBugfixSmall, sopID: SOPDevelopmentTaskV1},
+		{name: "feature module", kind: "feature", goal: "扩展 dashboard 模块页面", family: TaskFamilyFeatureModule, sopID: SOPDevelopmentTaskV1},
+		{name: "feature system", kind: "feature", goal: "重构 harness runtime orchestration pipeline", family: TaskFamilyFeatureSystem, sopID: SOPDevelopmentTaskV1},
+		{name: "development task", kind: "feature", goal: "实现需求分析、接口设计、模块开发和联调测试", family: TaskFamilyDevelopmentTask, sopID: SOPDevelopmentTaskV1},
+		{name: "integration external", goal: "接入 OAuth 第三方登录", family: TaskFamilyIntegrationExternal, sopID: SOPDevelopmentTaskV1},
+		{name: "review audit", goal: "审计当前 runtime route 与 verify 合同", family: TaskFamilyReviewOrAudit},
+		{name: "repair resume", goal: "恢复上次中断的 session 并继续执行", family: TaskFamilyRepairOrResume},
 	}
-	family, sopID = ClassifyTaskFamily("feature", "实现需求分析、接口设计、模块开发和联调测试", nil)
-	if family != TaskFamilyDevelopmentTask || sopID != SOPDevelopmentTaskV1 {
-		t.Fatalf("expected development task classification, got family=%s sop=%s", family, sopID)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			family, sopID := ClassifyTaskFamily(tc.kind, tc.goal, nil)
+			if family != tc.family || sopID != tc.sopID {
+				t.Fatalf("expected family=%s sop=%s, got family=%s sop=%s", tc.family, tc.sopID, family, sopID)
+			}
+		})
 	}
 }
 

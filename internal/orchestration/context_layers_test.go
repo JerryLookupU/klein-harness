@@ -29,6 +29,7 @@ func TestBuildContextLayersAndContinuationProtocol(t *testing.T) {
 		TaskGraphPath:         "/repo/.harness/artifacts/T-1/task-graph.json",
 		AcceptedPacketPath:    "/repo/.harness/state/accepted-packet-T-1.json",
 		VerifySkeletonPath:    "/repo/.harness/artifacts/T-1/verify-skeleton.json",
+		CloseoutSkeletonPath:  "/repo/.harness/artifacts/T-1/closeout-skeleton.json",
 		HandoffContractPath:   "/repo/.harness/artifacts/T-1/handoff-contract.json",
 		HandoffPath:           "/repo/.harness/artifacts/T-1/handoff.md",
 		SessionRegistryPath:   "/repo/.harness/state/session-registry.json",
@@ -42,5 +43,8 @@ func TestBuildContextLayersAndContinuationProtocol(t *testing.T) {
 	}
 	if protocol.ContextLayersPath == "" || len(protocol.ReadOrder) == 0 || len(protocol.RequiredArtifacts) == 0 {
 		t.Fatalf("expected continuation protocol to carry explicit file contract, got %+v", protocol)
+	}
+	if protocol.CloseoutSkeletonPath == "" {
+		t.Fatalf("expected continuation protocol to carry closeout skeleton path, got %+v", protocol)
 	}
 }

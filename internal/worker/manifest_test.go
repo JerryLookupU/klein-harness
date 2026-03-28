@@ -275,23 +275,24 @@ func TestPrepareWritesDispatchTicketWorkerSpecAndPrompt(t *testing.T) {
 	}
 
 	var workerSpec struct {
-		SchemaVersion       string   `json:"schemaVersion"`
-		DispatchID          string   `json:"dispatchId"`
-		TaskID              string   `json:"taskId"`
-		TaskFamily          string   `json:"taskFamily"`
-		SOPID               string   `json:"sopId"`
-		ThreadKey           string   `json:"threadKey"`
-		PlanEpoch           int      `json:"planEpoch"`
-		Objective           string   `json:"objective"`
-		SelectedPlan        string   `json:"selectedPlan"`
-		AcceptanceMarkers   []string `json:"acceptanceMarkers"`
-		ConstraintPath      string   `json:"constraintPath"`
-		SharedContextPath   string   `json:"sharedContextPath"`
-		TaskGraphPath       string   `json:"taskGraphPath"`
-		RequestContextPath  string   `json:"requestContextPath"`
-		RuntimeContextPath  string   `json:"runtimeContextPath"`
-		ContextLayersPath   string   `json:"contextLayersPath"`
-		HandoffContractPath string   `json:"handoffContractPath"`
+		SchemaVersion        string   `json:"schemaVersion"`
+		DispatchID           string   `json:"dispatchId"`
+		TaskID               string   `json:"taskId"`
+		TaskFamily           string   `json:"taskFamily"`
+		SOPID                string   `json:"sopId"`
+		ThreadKey            string   `json:"threadKey"`
+		PlanEpoch            int      `json:"planEpoch"`
+		Objective            string   `json:"objective"`
+		SelectedPlan         string   `json:"selectedPlan"`
+		AcceptanceMarkers    []string `json:"acceptanceMarkers"`
+		ConstraintPath       string   `json:"constraintPath"`
+		SharedContextPath    string   `json:"sharedContextPath"`
+		TaskGraphPath        string   `json:"taskGraphPath"`
+		RequestContextPath   string   `json:"requestContextPath"`
+		RuntimeContextPath   string   `json:"runtimeContextPath"`
+		ContextLayersPath    string   `json:"contextLayersPath"`
+		CloseoutSkeletonPath string   `json:"closeoutSkeletonPath"`
+		HandoffContractPath  string   `json:"handoffContractPath"`
 	}
 	workerSpecPayload, err := os.ReadFile(bundle.WorkerSpecPath)
 	if err != nil {
@@ -323,6 +324,7 @@ func TestPrepareWritesDispatchTicketWorkerSpecAndPrompt(t *testing.T) {
 		workerSpec.RequestContextPath,
 		workerSpec.RuntimeContextPath,
 		workerSpec.ContextLayersPath,
+		workerSpec.CloseoutSkeletonPath,
 		workerSpec.HandoffContractPath,
 	} {
 		if path == "" {
@@ -361,7 +363,7 @@ func TestPrepareWritesDispatchTicketWorkerSpecAndPrompt(t *testing.T) {
 	if !strings.Contains(promptText, bundle.TaskContractPath) {
 		t.Fatalf("prompt missing task contract path: %s", promptText)
 	}
-	if !strings.Contains(promptText, workerSpec.ContextLayersPath) || !strings.Contains(promptText, workerSpec.HandoffContractPath) {
+	if !strings.Contains(promptText, workerSpec.ContextLayersPath) || !strings.Contains(promptText, workerSpec.HandoffContractPath) || !strings.Contains(promptText, workerSpec.CloseoutSkeletonPath) {
 		t.Fatalf("prompt missing compiled context refs: %s", promptText)
 	}
 	if !strings.Contains(promptText, workerSpec.SharedContextPath) {
@@ -467,7 +469,8 @@ func TestPrepareWritesDispatchTicketWorkerSpecAndPrompt(t *testing.T) {
 			ExecutionSliceID string `json:"executionSliceId"`
 		} `json:"sliceLocal"`
 		RuntimeControl struct {
-			TaskGraphPath string `json:"taskGraphPath"`
+			TaskGraphPath        string `json:"taskGraphPath"`
+			CloseoutSkeletonPath string `json:"closeoutSkeletonPath"`
 		} `json:"runtimeControl"`
 	}
 	if payload, err := os.ReadFile(workerSpec.ContextLayersPath); err != nil {
@@ -475,23 +478,38 @@ func TestPrepareWritesDispatchTicketWorkerSpecAndPrompt(t *testing.T) {
 	} else if err := json.Unmarshal(payload, &contextLayers); err != nil {
 		t.Fatalf("unmarshal context layers: %v", err)
 	}
-	if contextLayers.SchemaVersion != "kh.context-layers.v1" || contextLayers.Request.Goal == "" || contextLayers.SliceLocal.ExecutionSliceID == "" || contextLayers.RuntimeControl.TaskGraphPath == "" {
+	if contextLayers.SchemaVersion != "kh.context-layers.v1" || contextLayers.Request.Goal == "" || contextLayers.SliceLocal.ExecutionSliceID == "" || contextLayers.RuntimeControl.TaskGraphPath == "" || contextLayers.RuntimeControl.CloseoutSkeletonPath == "" {
 		t.Fatalf("unexpected context layers contract: %+v", contextLayers)
 	}
 
+	var closeout struct {
+		SchemaVersion      string   `json:"schemaVersion"`
+		VerifySkeletonPath string   `json:"verifySkeletonPath"`
+		WorkerMustProvide  []string `json:"workerMustProvide"`
+	}
+	if payload, err := os.ReadFile(workerSpec.CloseoutSkeletonPath); err != nil {
+		t.Fatalf("read closeout skeleton: %v", err)
+	} else if err := json.Unmarshal(payload, &closeout); err != nil {
+		t.Fatalf("unmarshal closeout skeleton: %v", err)
+	}
+	if closeout.SchemaVersion != "kh.closeout-skeleton.v1" || closeout.VerifySkeletonPath == "" || len(closeout.WorkerMustProvide) == 0 {
+		t.Fatalf("unexpected closeout skeleton contract: %+v", closeout)
+	}
+
 	var takeover struct {
-		SchemaVersion       string   `json:"schemaVersion"`
-		ContextLayersPath   string   `json:"contextLayersPath"`
-		TaskGraphPath       string   `json:"taskGraphPath"`
-		HandoffContractPath string   `json:"handoffContractPath"`
-		ReadOrder           []string `json:"readOrder"`
+		SchemaVersion        string   `json:"schemaVersion"`
+		ContextLayersPath    string   `json:"contextLayersPath"`
+		TaskGraphPath        string   `json:"taskGraphPath"`
+		CloseoutSkeletonPath string   `json:"closeoutSkeletonPath"`
+		HandoffContractPath  string   `json:"handoffContractPath"`
+		ReadOrder            []string `json:"readOrder"`
 	}
 	if payload, err := os.ReadFile(filepath.Join(bundle.ArtifactDir, "takeover-context.json")); err != nil {
 		t.Fatalf("read takeover context: %v", err)
 	} else if err := json.Unmarshal(payload, &takeover); err != nil {
 		t.Fatalf("unmarshal takeover context: %v", err)
 	}
-	if takeover.SchemaVersion != "kh.multi-session-continuation.v1" || takeover.ContextLayersPath == "" || takeover.TaskGraphPath == "" || takeover.HandoffContractPath == "" || len(takeover.ReadOrder) == 0 {
+	if takeover.SchemaVersion != "kh.multi-session-continuation.v1" || takeover.ContextLayersPath == "" || takeover.TaskGraphPath == "" || takeover.CloseoutSkeletonPath == "" || takeover.HandoffContractPath == "" || len(takeover.ReadOrder) == 0 {
 		t.Fatalf("unexpected continuation protocol: %+v", takeover)
 	}
 }
