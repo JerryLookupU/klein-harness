@@ -60,6 +60,46 @@ func resolveSOPDefinition(task adapter.Task) (SOPDefinition, bool) {
 	return candidates[0], true
 }
 
+func ResolveTaskClassification(task adapter.Task) (TaskFamily, string) {
+	family := TaskFamily(strings.TrimSpace(task.TaskFamily))
+	sopID := strings.TrimSpace(task.SOPID)
+	if family == "" || family == TaskFamilyUnknown || sopID == "" {
+		inferredFamily, inferredSOP := ClassifyTaskFamily(task.Kind, coalesce(task.Summary, task.Title), []string{task.Description})
+		if family == "" || family == TaskFamilyUnknown {
+			family = inferredFamily
+		}
+		if sopID == "" {
+			sopID = inferredSOP
+		}
+	}
+	resolvedTask := task
+	if family != "" {
+		resolvedTask.TaskFamily = string(family)
+	}
+	if sopID != "" {
+		resolvedTask.SOPID = sopID
+	}
+	if def, ok := resolveSOPDefinition(resolvedTask); ok {
+		if sopID == "" {
+			sopID = def.ID
+		}
+		if family == "" || family == TaskFamilyUnknown {
+			family = def.Family
+		}
+	}
+	if family == "" {
+		family = TaskFamilyUnknown
+	}
+	return family, sopID
+}
+
+func MaterializeTaskClassification(task adapter.Task) adapter.Task {
+	family, sopID := ResolveTaskClassification(task)
+	task.TaskFamily = string(family)
+	task.SOPID = sopID
+	return task
+}
+
 func ClassifyTaskFamily(kind, goal string, contexts []string) (TaskFamily, string) {
 	lower := strings.ToLower(strings.Join(append([]string{kind, goal}, contexts...), "\n"))
 	switch {

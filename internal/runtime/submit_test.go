@@ -528,6 +528,47 @@ func TestBuildRouteInputCarriesIntakeSignals(t *testing.T) {
 	}
 }
 
+func TestEnsureTaskClassificationBackfillsLegacyTaskMetadata(t *testing.T) {
+	root := t.TempDir()
+	if _, err := bootstrap.Init(root); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+	result, err := Submit(SubmitRequest{
+		Root: root,
+		Goal: "恢复上次中断的 session 并继续执行 verify 收口",
+	})
+	if err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+	if err := updateTask(root, result.Task.TaskID, func(current *adapter.Task) {
+		current.TaskFamily = ""
+		current.SOPID = ""
+		current.UpdatedAt = state.NowUTC()
+	}); err != nil {
+		t.Fatalf("clear task classification: %v", err)
+	}
+
+	task, err := adapter.LoadTask(root, result.Task.TaskID)
+	if err != nil {
+		t.Fatalf("load task: %v", err)
+	}
+	task, err = ensureTaskClassification(root, task)
+	if err != nil {
+		t.Fatalf("ensure task classification: %v", err)
+	}
+	if task.TaskFamily != "repair_or_resume" || task.SOPID != "sop.development_task.v1" {
+		t.Fatalf("expected legacy task to be backfilled from classifier, got %+v", task)
+	}
+
+	routeInput, err := BuildRouteInput(root, task, task.PlanEpoch, false, false, "state.v9")
+	if err != nil {
+		t.Fatalf("build route input: %v", err)
+	}
+	if routeInput.TaskFamily != "repair_or_resume" || routeInput.SOPID != "sop.development_task.v1" {
+		t.Fatalf("expected route input to carry backfilled classification, got %+v", routeInput)
+	}
+}
+
 func TestShouldEnterAnalysisLoopDoesNotRetryBlockedByDefault(t *testing.T) {
 	if ShouldEnterAnalysisLoop("", "blocked", "", nil) {
 		t.Fatalf("expected blocked verification to stop instead of auto-retrying")

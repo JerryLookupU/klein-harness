@@ -149,6 +149,7 @@ type TaskContract struct {
 	VerifySkeletonPath    string                      `json:"verifySkeletonPath,omitempty"`
 	CloseoutSkeletonPath  string                      `json:"closeoutSkeletonPath,omitempty"`
 	HandoffContractPath   string                      `json:"handoffContractPath,omitempty"`
+	TakeoverPath          string                      `json:"takeoverPath,omitempty"`
 }
 
 type PacketProgress struct {

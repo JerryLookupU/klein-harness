@@ -502,7 +502,8 @@ func writeAcceptedPacketAndContract(t *testing.T, root string, ticket dispatch.T
 
 func writeTaskContractForSlice(t *testing.T, root string, ticket dispatch.Ticket, sliceID string) {
 	t.Helper()
-	path := orchestration.TaskContractPath(filepath.Join(root, ".harness", "artifacts", "T-1", ticket.DispatchID))
+	artifactDir := filepath.Join(root, ".harness", "artifacts", "T-1", ticket.DispatchID)
+	path := orchestration.TaskContractPath(artifactDir)
 	if err := orchestration.WriteTaskContract(path, orchestration.TaskContract{
 		SchemaVersion:     "kh.task-contract.v1",
 		Generator:         "test",
@@ -529,6 +530,14 @@ func writeTaskContractForSlice(t *testing.T, root string, ticket dispatch.Ticket
 		AcceptedBy:         "test",
 		AcceptedAt:         "2026-03-26T10:00:00Z",
 		AcceptedPacketPath: orchestration.AcceptedPacketPath(root, "T-1"),
+		SharedFlowContextPath: filepath.Join(artifactDir, "shared-flow-context.json"),
+		TaskGraphPath:         filepath.Join(artifactDir, "task-graph.json"),
+		SliceContextPath:      filepath.Join(artifactDir, "slice-context.json"),
+		ContextLayersPath:     filepath.Join(artifactDir, "context-layers.json"),
+		VerifySkeletonPath:    filepath.Join(artifactDir, "verify-skeleton.json"),
+		CloseoutSkeletonPath:  filepath.Join(artifactDir, "closeout-skeleton.json"),
+		HandoffContractPath:   filepath.Join(artifactDir, "handoff-contract.json"),
+		TakeoverPath:          filepath.Join(artifactDir, "takeover-context.json"),
 	}); err != nil {
 		t.Fatalf("write task contract: %v", err)
 	}

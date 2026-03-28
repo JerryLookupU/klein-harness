@@ -194,6 +194,10 @@ func RunOnce(root string, options RunOptions) (RunResult, error) {
 		}
 		return RunResult{RuntimeStatus: "idle"}, nil
 	}
+	task, err = ensureTaskClassification(paths.Root, task)
+	if err != nil {
+		return RunResult{}, err
+	}
 
 	workerID := strings.TrimSpace(options.WorkerID)
 	if workerID == "" {
@@ -1056,12 +1060,13 @@ func BuildRouteInput(root string, task adapter.Task, latestPlanEpoch int, checkp
 	if err != nil {
 		return route.Input{}, err
 	}
+	family, sopID := orchestration.ResolveTaskClassification(task)
 	return route.Input{
 		TaskID:                    task.TaskID,
 		RoleHint:                  task.RoleHint,
 		Kind:                      task.Kind,
-		TaskFamily:                task.TaskFamily,
-		SOPID:                     task.SOPID,
+		TaskFamily:                string(family),
+		SOPID:                     sopID,
 		Title:                     task.Title,
 		Summary:                   strings.TrimSpace(strings.Join([]string{task.Summary, task.Description}, "\n")),
 		FrontDoorTriage:           requestRecord.FrontDoorTriage,
@@ -1082,6 +1087,22 @@ func BuildRouteInput(root string, task adapter.Task, latestPlanEpoch int, checkp
 		OwnedPaths:                task.OwnedPaths,
 		RequiredSummaryVersion:    requiredSummaryVersion,
 	}, nil
+}
+
+func ensureTaskClassification(root string, task adapter.Task) (adapter.Task, error) {
+	resolved := orchestration.MaterializeTaskClassification(task)
+	if resolved.TaskFamily == task.TaskFamily && resolved.SOPID == task.SOPID {
+		return resolved, nil
+	}
+	now := state.NowUTC()
+	if err := updateTask(root, task.TaskID, func(current *adapter.Task) {
+		current.TaskFamily = resolved.TaskFamily
+		current.SOPID = resolved.SOPID
+		current.UpdatedAt = now
+	}); err != nil {
+		return adapter.Task{}, err
+	}
+	return adapter.LoadTask(root, task.TaskID)
 }
 
 func RefreshExecutionIndexesForTask(root string, task adapter.Task) error {

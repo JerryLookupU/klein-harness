@@ -708,18 +708,34 @@ func taskContractDefinitionCheck(contractFound bool, contract orchestration.Task
 		len(contract.VerificationChecklist) > 0 &&
 		len(contract.RequiredEvidence) > 0 &&
 		strings.TrimSpace(contract.ExecutionSliceID) != "" &&
-		strings.TrimSpace(contract.AcceptedPacketPath) != ""
+		strings.TrimSpace(contract.AcceptedPacketPath) != "" &&
+		strings.TrimSpace(contract.SharedFlowContextPath) != "" &&
+		strings.TrimSpace(contract.TaskGraphPath) != "" &&
+		strings.TrimSpace(contract.SliceContextPath) != "" &&
+		strings.TrimSpace(contract.ContextLayersPath) != "" &&
+		strings.TrimSpace(contract.VerifySkeletonPath) != "" &&
+		strings.TrimSpace(contract.CloseoutSkeletonPath) != "" &&
+		strings.TrimSpace(contract.HandoffContractPath) != "" &&
+		strings.TrimSpace(contract.TakeoverPath) != ""
 	return GateCheck{
 		Name: "taskContractDefinition",
 		OK:   ok,
 		Detail: fmt.Sprintf(
-			"executionSliceId=%s inScope=%d doneCriteria=%d checklist=%d requiredEvidence=%d acceptedPacketPath=%t",
+			"executionSliceId=%s inScope=%d doneCriteria=%d checklist=%d requiredEvidence=%d acceptedPacketPath=%t sharedFlow=%t taskGraph=%t sliceContext=%t contextLayers=%t verifySkeleton=%t closeoutSkeleton=%t handoffContract=%t takeover=%t",
 			contract.ExecutionSliceID,
 			len(contract.InScope),
 			len(contract.DoneCriteria),
 			len(contract.VerificationChecklist),
 			len(contract.RequiredEvidence),
 			strings.TrimSpace(contract.AcceptedPacketPath) != "",
+			strings.TrimSpace(contract.SharedFlowContextPath) != "",
+			strings.TrimSpace(contract.TaskGraphPath) != "",
+			strings.TrimSpace(contract.SliceContextPath) != "",
+			strings.TrimSpace(contract.ContextLayersPath) != "",
+			strings.TrimSpace(contract.VerifySkeletonPath) != "",
+			strings.TrimSpace(contract.CloseoutSkeletonPath) != "",
+			strings.TrimSpace(contract.HandoffContractPath) != "",
+			strings.TrimSpace(contract.TakeoverPath) != "",
 		),
 	}
 }

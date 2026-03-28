@@ -425,6 +425,7 @@ func Prepare(root string, ticket dispatch.Ticket, leaseID string) (DispatchBundl
 	taskContract.TaskGraphPath = taskGraphPath
 	taskContract.CloseoutSkeletonPath = closeoutSkeletonPath
 	taskContract.HandoffContractPath = handoffContractPath
+	taskContract.TakeoverPath = takeoverPath
 	taskContractRevision, err = state.CurrentRevision(taskContractPath)
 	if err != nil {
 		return DispatchBundle{}, err
@@ -579,12 +580,18 @@ func Prepare(root string, ticket dispatch.Ticket, leaseID string) (DispatchBundl
 				"planningTrace":    planningTracePath,
 				"feedbackSummary":  filepath.Join(paths.StateDir, "feedback-summary.json"),
 				"constraints":      constraintPath,
+				"requestContext":   requestContextPath,
+				"runtimeContext":   runtimeContextPath,
 				"acceptedPacket":   acceptedPacketPath,
 				"taskContract":     taskContractPath,
 				"taskGraph":        taskGraphPath,
 				"contextLayers":    contextLayersPath,
+				"sharedFlow":       sharedFlowContextPath,
+				"sliceContext":     sliceContextPath,
+				"verifySkeleton":   verifySkeletonPath,
 				"closeoutSkeleton": closeoutSkeletonPath,
 				"handoffContract":  handoffContractPath,
+				"takeover":         takeoverPath,
 			},
 			orchestration.PromptRefs(paths.Root),
 		),
@@ -680,10 +687,11 @@ func verificationCommands(path string, ruleIDs []string) ([]map[string]any, erro
 }
 
 func materializeTaskOrchestrationMetadata(task adapter.Task, compiledFlow orchestration.CompiledFlow) adapter.Task {
-	if compiledFlow.Family != "" && (strings.TrimSpace(task.TaskFamily) == "" || task.TaskFamily == string(orchestration.TaskFamilyUnknown)) {
+	task = orchestration.MaterializeTaskClassification(task)
+	if compiledFlow.Family != "" && task.TaskFamily == string(orchestration.TaskFamilyUnknown) {
 		task.TaskFamily = string(compiledFlow.Family)
 	}
-	if strings.TrimSpace(compiledFlow.SOPID) != "" {
+	if strings.TrimSpace(compiledFlow.SOPID) != "" && strings.TrimSpace(task.SOPID) == "" {
 		task.SOPID = compiledFlow.SOPID
 	}
 	return task

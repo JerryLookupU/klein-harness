@@ -27,6 +27,16 @@ type PlanningView struct {
 	ConstraintPath     string                              `json:"constraintPath,omitempty"`
 	AcceptedPacketPath string                              `json:"acceptedPacketPath,omitempty"`
 	TaskContractPath   string                              `json:"taskContractPath,omitempty"`
+	RequestContextPath string                              `json:"requestContextPath,omitempty"`
+	RuntimeContextPath string                              `json:"runtimeContextPath,omitempty"`
+	ContextLayersPath  string                              `json:"contextLayersPath,omitempty"`
+	SharedFlowPath     string                              `json:"sharedFlowPath,omitempty"`
+	SliceContextPath   string                              `json:"sliceContextPath,omitempty"`
+	TaskGraphPath      string                              `json:"taskGraphPath,omitempty"`
+	VerifySkeletonPath string                              `json:"verifySkeletonPath,omitempty"`
+	CloseoutPath       string                              `json:"closeoutPath,omitempty"`
+	HandoffPath        string                              `json:"handoffPath,omitempty"`
+	TakeoverPath       string                              `json:"takeoverPath,omitempty"`
 	ExecutionSliceID   string                              `json:"executionSliceId,omitempty"`
 	ResumeStrategy     string                              `json:"resumeStrategy,omitempty"`
 	SessionID          string                              `json:"sessionId,omitempty"`
@@ -56,6 +66,13 @@ type TaskView struct {
 	RemainingSlices []string                      `json:"remainingSlices,omitempty"`
 	NextSliceID     string                        `json:"nextSliceId,omitempty"`
 	TaskContract    *orchestration.TaskContract   `json:"taskContract,omitempty"`
+	ContextLayers   *orchestration.ContextLayers  `json:"contextLayers,omitempty"`
+	SharedFlow      *orchestration.SharedFlowContext `json:"sharedFlow,omitempty"`
+	SliceContext    *orchestration.SliceLocalContext `json:"sliceContext,omitempty"`
+	VerifySkeleton  *orchestration.VerifySkeleton `json:"verifySkeleton,omitempty"`
+	Closeout        *orchestration.CloseoutSkeleton `json:"closeout,omitempty"`
+	Handoff         *orchestration.HandoffContract `json:"handoff,omitempty"`
+	Continuation    *orchestration.ContinuationProtocol `json:"continuation,omitempty"`
 	Assessment      *verify.Assessment            `json:"assessment,omitempty"`
 	Request         *runtime.RequestRecord        `json:"request,omitempty"`
 	IntakeSummary   *runtime.IntakeSummary        `json:"intakeSummary,omitempty"`
@@ -197,6 +214,41 @@ func Task(root, taskID string) (TaskView, error) {
 			view.Assessment = &assessment
 		}
 	}
+	if contextLayers, ok, err := loadContextLayers(view.Planning, view.TaskContract); err != nil {
+		return TaskView{}, err
+	} else if ok {
+		view.ContextLayers = &contextLayers
+	}
+	if sharedFlow, ok, err := loadSharedFlowContext(view.Planning, view.TaskContract); err != nil {
+		return TaskView{}, err
+	} else if ok {
+		view.SharedFlow = &sharedFlow
+	}
+	if sliceContext, ok, err := loadSliceContext(view.Planning, view.TaskContract); err != nil {
+		return TaskView{}, err
+	} else if ok {
+		view.SliceContext = &sliceContext
+	}
+	if verifySkeleton, ok, err := loadVerifySkeleton(view.Planning, view.TaskContract); err != nil {
+		return TaskView{}, err
+	} else if ok {
+		view.VerifySkeleton = &verifySkeleton
+	}
+	if closeout, ok, err := loadCloseoutSkeleton(view.Planning, view.TaskContract); err != nil {
+		return TaskView{}, err
+	} else if ok {
+		view.Closeout = &closeout
+	}
+	if handoff, ok, err := loadHandoffContract(view.Planning, view.TaskContract); err != nil {
+		return TaskView{}, err
+	} else if ok {
+		view.Handoff = &handoff
+	}
+	if continuation, ok, err := loadContinuation(view.Planning, view.TaskContract); err != nil {
+		return TaskView{}, err
+	} else if ok {
+		view.Continuation = &continuation
+	}
 	if view.AcceptedPacket != nil {
 		view.RemainingSlices = remainingExecutionSlices(*view.AcceptedPacket, view.PacketProgress)
 		if len(view.RemainingSlices) > 0 {
@@ -337,6 +389,16 @@ type dispatchTicketView struct {
 	ConstraintPath     string                              `json:"constraintPath"`
 	AcceptedPacketPath string                              `json:"acceptedPacketPath"`
 	TaskContractPath   string                              `json:"taskContractPath"`
+	RequestContextPath string                              `json:"requestContextPath"`
+	RuntimeContextPath string                              `json:"runtimeContextPath"`
+	ContextLayersPath  string                              `json:"contextLayersPath"`
+	SharedFlowPath     string                              `json:"sharedFlowPath"`
+	SliceContextPath   string                              `json:"sliceContextPath"`
+	TaskGraphPath      string                              `json:"taskGraphPath"`
+	VerifySkeletonPath string                              `json:"verifySkeletonPath"`
+	CloseoutPath       string                              `json:"closeoutPath"`
+	HandoffPath        string                              `json:"handoffPath"`
+	TakeoverPath       string                              `json:"takeoverPath"`
 	ExecutionSliceID   string                              `json:"executionSliceId"`
 	RuntimeRefs        map[string]string                   `json:"runtimeRefs"`
 	Methodology        orchestration.MethodologyContract   `json:"methodology"`
@@ -367,6 +429,16 @@ func loadPlanningView(stateDir, taskID string) (*PlanningView, error) {
 		ConstraintPath:     ticket.ConstraintPath,
 		AcceptedPacketPath: ticket.AcceptedPacketPath,
 		TaskContractPath:   ticket.TaskContractPath,
+		RequestContextPath: ticket.RequestContextPath,
+		RuntimeContextPath: ticket.RuntimeContextPath,
+		ContextLayersPath:  ticket.ContextLayersPath,
+		SharedFlowPath:     ticket.SharedFlowPath,
+		SliceContextPath:   ticket.SliceContextPath,
+		TaskGraphPath:      ticket.TaskGraphPath,
+		VerifySkeletonPath: ticket.VerifySkeletonPath,
+		CloseoutPath:       ticket.CloseoutPath,
+		HandoffPath:        ticket.HandoffPath,
+		TakeoverPath:       ticket.TakeoverPath,
 		ExecutionSliceID:   ticket.ExecutionSliceID,
 		ResumeStrategy:     ticket.ResumeStrategy,
 		SessionID:          ticket.SessionID,
@@ -391,6 +463,36 @@ func loadPlanningView(stateDir, taskID string) (*PlanningView, error) {
 	}
 	if view.TaskContractPath == "" {
 		view.TaskContractPath = ticket.RuntimeRefs["taskContract"]
+	}
+	if view.RequestContextPath == "" {
+		view.RequestContextPath = ticket.RuntimeRefs["requestContext"]
+	}
+	if view.RuntimeContextPath == "" {
+		view.RuntimeContextPath = ticket.RuntimeRefs["runtimeContext"]
+	}
+	if view.ContextLayersPath == "" {
+		view.ContextLayersPath = ticket.RuntimeRefs["contextLayers"]
+	}
+	if view.SharedFlowPath == "" {
+		view.SharedFlowPath = ticket.RuntimeRefs["sharedFlow"]
+	}
+	if view.SliceContextPath == "" {
+		view.SliceContextPath = ticket.RuntimeRefs["sliceContext"]
+	}
+	if view.TaskGraphPath == "" {
+		view.TaskGraphPath = ticket.RuntimeRefs["taskGraph"]
+	}
+	if view.VerifySkeletonPath == "" {
+		view.VerifySkeletonPath = ticket.RuntimeRefs["verifySkeleton"]
+	}
+	if view.CloseoutPath == "" {
+		view.CloseoutPath = ticket.RuntimeRefs["closeoutSkeleton"]
+	}
+	if view.HandoffPath == "" {
+		view.HandoffPath = ticket.RuntimeRefs["handoffContract"]
+	}
+	if view.TakeoverPath == "" {
+		view.TakeoverPath = ticket.RuntimeRefs["takeover"]
 	}
 	if view.Methodology.Mode == "" {
 		root := filepath.Dir(filepath.Dir(stateDir))
@@ -440,6 +542,41 @@ func loadTaskContract(root, taskID, dispatchID string) (orchestration.TaskContra
 	return contract, true, nil
 }
 
+func loadContextLayers(planning *PlanningView, contract *orchestration.TaskContract) (orchestration.ContextLayers, bool, error) {
+	var payload orchestration.ContextLayers
+	return payload, loadJSONIfPresent(firstNonEmptyPlanningPath(contractPath(contract, func(c *orchestration.TaskContract) string { return c.ContextLayersPath }), planningPath(planning, func(p *PlanningView) string { return p.ContextLayersPath })), &payload)
+}
+
+func loadSharedFlowContext(planning *PlanningView, contract *orchestration.TaskContract) (orchestration.SharedFlowContext, bool, error) {
+	var payload orchestration.SharedFlowContext
+	return payload, loadJSONIfPresent(firstNonEmptyPlanningPath(contractPath(contract, func(c *orchestration.TaskContract) string { return c.SharedFlowContextPath }), planningPath(planning, func(p *PlanningView) string { return p.SharedFlowPath })), &payload)
+}
+
+func loadSliceContext(planning *PlanningView, contract *orchestration.TaskContract) (orchestration.SliceLocalContext, bool, error) {
+	var payload orchestration.SliceLocalContext
+	return payload, loadJSONIfPresent(firstNonEmptyPlanningPath(contractPath(contract, func(c *orchestration.TaskContract) string { return c.SliceContextPath }), planningPath(planning, func(p *PlanningView) string { return p.SliceContextPath })), &payload)
+}
+
+func loadVerifySkeleton(planning *PlanningView, contract *orchestration.TaskContract) (orchestration.VerifySkeleton, bool, error) {
+	var payload orchestration.VerifySkeleton
+	return payload, loadJSONIfPresent(firstNonEmptyPlanningPath(contractPath(contract, func(c *orchestration.TaskContract) string { return c.VerifySkeletonPath }), planningPath(planning, func(p *PlanningView) string { return p.VerifySkeletonPath })), &payload)
+}
+
+func loadCloseoutSkeleton(planning *PlanningView, contract *orchestration.TaskContract) (orchestration.CloseoutSkeleton, bool, error) {
+	var payload orchestration.CloseoutSkeleton
+	return payload, loadJSONIfPresent(firstNonEmptyPlanningPath(contractPath(contract, func(c *orchestration.TaskContract) string { return c.CloseoutSkeletonPath }), planningPath(planning, func(p *PlanningView) string { return p.CloseoutPath })), &payload)
+}
+
+func loadHandoffContract(planning *PlanningView, contract *orchestration.TaskContract) (orchestration.HandoffContract, bool, error) {
+	var payload orchestration.HandoffContract
+	return payload, loadJSONIfPresent(firstNonEmptyPlanningPath(contractPath(contract, func(c *orchestration.TaskContract) string { return c.HandoffContractPath }), planningPath(planning, func(p *PlanningView) string { return p.HandoffPath })), &payload)
+}
+
+func loadContinuation(planning *PlanningView, contract *orchestration.TaskContract) (orchestration.ContinuationProtocol, bool, error) {
+	var payload orchestration.ContinuationProtocol
+	return payload, loadJSONIfPresent(firstNonEmptyPlanningPath(contractPath(contract, func(c *orchestration.TaskContract) string { return c.TakeoverPath }), planningPath(planning, func(p *PlanningView) string { return p.TakeoverPath })), &payload)
+}
+
 func loadAssessment(root, taskID, dispatchID string) (verify.Assessment, bool, error) {
 	path := verify.AssessmentPath(root, taskID, dispatchID)
 	assessment, err := verify.LoadAssessment(path)
@@ -450,6 +587,40 @@ func loadAssessment(root, taskID, dispatchID string) (verify.Assessment, bool, e
 		return verify.Assessment{}, false, err
 	}
 	return assessment, true, nil
+}
+
+func loadJSONIfPresent(path string, target any) (bool, error) {
+	if strings.TrimSpace(path) == "" {
+		return false, nil
+	}
+	ok, err := state.LoadJSONIfExists(path, target)
+	if err != nil {
+		return false, err
+	}
+	return ok, nil
+}
+
+func contractPath(contract *orchestration.TaskContract, selectPath func(*orchestration.TaskContract) string) string {
+	if contract == nil {
+		return ""
+	}
+	return selectPath(contract)
+}
+
+func planningPath(planning *PlanningView, selectPath func(*PlanningView) string) string {
+	if planning == nil {
+		return ""
+	}
+	return selectPath(planning)
+}
+
+func firstNonEmptyPlanningPath(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func loadPacketProgress(root, taskID string) (orchestration.PacketProgress, bool, error) {

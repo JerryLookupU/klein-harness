@@ -65,3 +65,19 @@ func TestCompileFlowForTaskUsesRegistryAndPreservesDevelopmentFamily(t *testing.
 		t.Fatalf("expected bugfix family to use direct pass, got %+v", flow)
 	}
 }
+
+func TestMaterializeTaskClassificationPreservesDevelopmentSubFamily(t *testing.T) {
+	task := MaterializeTaskClassification(adapter.Task{
+		TaskID:      "T-legacy",
+		Kind:        "bug",
+		Title:       "Fix resume verify drift",
+		Summary:     "Fix resume verify drift",
+		Description: "恢复上次中断的 session 并继续执行",
+	})
+	if task.TaskFamily != string(TaskFamilyRepairOrResume) {
+		t.Fatalf("expected repair/resume family, got %+v", task)
+	}
+	if task.SOPID != SOPDevelopmentTaskV1 {
+		t.Fatalf("expected development task sop for repair/resume family, got %+v", task)
+	}
+}
