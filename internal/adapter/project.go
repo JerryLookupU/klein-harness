@@ -59,6 +59,8 @@ type Task struct {
 	ProjectSpaceID            string          `json:"projectSpaceId,omitempty"`
 	ThreadKey                 string          `json:"threadKey"`
 	Kind                      string          `json:"kind"`
+	TaskFamily                string          `json:"taskFamily,omitempty"`
+	SOPID                     string          `json:"sopId,omitempty"`
 	RoleHint                  string          `json:"roleHint"`
 	Title                     string          `json:"title"`
 	Summary                   string          `json:"summary"`

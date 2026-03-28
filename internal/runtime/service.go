@@ -70,6 +70,8 @@ type submitClassification struct {
 	FrontDoorTriage       string
 	NormalizedIntentClass string
 	FusionDecision        string
+	TaskFamily            string
+	SOPID                 string
 	TargetThreadKey       string
 	TargetPlanEpoch       int
 	IdempotencyKey        string
@@ -125,6 +127,8 @@ func Submit(request SubmitRequest) (SubmitResult, error) {
 		TargetThreadKey:       firstString(classification.TargetThreadKey, binding.Task.ThreadKey),
 		TargetPlanEpoch:       classification.TargetPlanEpoch,
 		Kind:                  kind,
+		TaskFamily:            classification.TaskFamily,
+		SOPID:                 classification.SOPID,
 		Goal:                  request.Goal,
 		Contexts:              uniqueNonEmpty(request.Contexts),
 		Status:                firstString(binding.Task.Status, "queued"),
@@ -713,6 +717,7 @@ func classifySubmission(request SubmitRequest, tasks []adapter.Task) submitClass
 	canonicalGoalHash := hashString(canonicalGoal)
 	evidenceFingerprint := hashString(strings.Join(contexts, "\n"))
 	frontDoorTriage := frontDoorTriage(goal, contexts)
+	family, sopID := orchestration.ClassifyTaskFamily(request.Kind, goal, contexts)
 	intentClass := "fresh_work"
 	fusionDecision := "accepted_new_thread"
 	targetThreadKey := ""
@@ -752,6 +757,8 @@ func classifySubmission(request SubmitRequest, tasks []adapter.Task) submitClass
 		FrontDoorTriage:       frontDoorTriage,
 		NormalizedIntentClass: intentClass,
 		FusionDecision:        fusionDecision,
+		TaskFamily:            string(family),
+		SOPID:                 sopID,
 		TargetThreadKey:       targetThreadKey,
 		TargetPlanEpoch:       targetPlanEpoch,
 		IdempotencyKey:        "submit:" + canonicalGoalHash + ":" + evidenceFingerprint,
@@ -783,6 +790,8 @@ func updateIntakeState(paths adapter.Paths, record RequestRecord, task adapter.T
 	intakeSummary.FrontDoorTriage = record.FrontDoorTriage
 	intakeSummary.NormalizedIntentClass = record.NormalizedIntentClass
 	intakeSummary.FusionDecision = record.FusionDecision
+	intakeSummary.TaskFamily = record.TaskFamily
+	intakeSummary.SOPID = record.SOPID
 	intakeSummary.RequestCount++
 	intakeSummary.ActiveThreadCount = len(threadState.Threads)
 	if _, err := state.WriteSnapshot(intakeSummaryPath, &intakeSummary, "harness-runtime", intakeSummary.Revision); err != nil {
@@ -797,6 +806,8 @@ func updateIntakeState(paths adapter.Paths, record RequestRecord, task adapter.T
 	changeSummary.LatestTaskID = task.TaskID
 	changeSummary.TargetThreadKey = threadKey
 	changeSummary.ChangeKind = record.NormalizedIntentClass
+	changeSummary.TaskFamily = record.TaskFamily
+	changeSummary.SOPID = record.SOPID
 	changeSummary.Summary = record.ClassificationReason
 	changeSummary.AffectsExecution = record.FrontDoorTriage != "advisory_read_only"
 	if _, err := state.WriteSnapshot(changeSummaryPath, &changeSummary, "harness-runtime", changeSummary.Revision); err != nil {
@@ -812,6 +823,8 @@ func resolveSubmissionBinding(root, requestID, now, kind string, request SubmitR
 	threadKey := firstString(classification.TargetThreadKey, requestID)
 	if match, ok := latestMatchingTask(tasks, classification.CanonicalGoalHash); ok && canReuseSubmissionTask(match) {
 		match.ThreadKey = firstString(match.ThreadKey, threadKey, match.TaskID)
+		match.TaskFamily = firstString(match.TaskFamily, classification.TaskFamily)
+		match.SOPID = firstString(match.SOPID, classification.SOPID)
 		match.Title = firstString(match.Title, shortTitle(request.Goal))
 		if strings.TrimSpace(request.Goal) != "" {
 			match.Summary = request.Goal
@@ -831,6 +844,8 @@ func resolveSubmissionBinding(root, requestID, now, kind string, request SubmitR
 			TaskID:                 nextTaskID(tasks),
 			ThreadKey:              threadKey,
 			Kind:                   kind,
+			TaskFamily:             classification.TaskFamily,
+			SOPID:                  classification.SOPID,
 			RoleHint:               "worker",
 			Title:                  shortTitle(request.Goal),
 			Summary:                request.Goal,
@@ -889,6 +904,8 @@ func writeRequestHotState(paths adapter.Paths, record RequestRecord, task adapte
 	requestSummary.FrontDoorTriage = record.FrontDoorTriage
 	requestSummary.NormalizedIntentClass = record.NormalizedIntentClass
 	requestSummary.FusionDecision = record.FusionDecision
+	requestSummary.TaskFamily = record.TaskFamily
+	requestSummary.SOPID = record.SOPID
 	requestSummary.BindingAction = record.BindingAction
 	requestSummary.TargetPlanEpoch = record.TargetPlanEpoch
 	requestSummary.RequestCount++

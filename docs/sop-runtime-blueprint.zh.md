@@ -1,0 +1,208 @@
+# SOP Runtime Blueprint
+
+## 目标
+
+把当前 harness 从“planner / judge 临场自由编排”推进到“程序主导 SOP，agent 主导单 slice 执行”的运行时。目标不是削弱 `codex --yolo`，而是把它放进一个更干净、更稳定、更可恢复的执行管道里。
+
+最终形态应支持：
+
+- 用户持续提交需求
+- runtime 自动完成 `classify -> sop select -> context compile -> slice compile -> execute -> verify -> replan -> resume -> closeout`
+- flow 级上下文干净
+- 多 session 可以通过文件合同接续
+- 断电或中断后可以恢复
+
+## 为什么从自由 Packet 转向 SOP
+
+现有 packet synthesis 对复杂任务依然有价值，但对稳定重复型任务有几个问题：
+
+- shared spec、slice、verify、closeout 仍有较大自由度
+- worker 需要阅读过多 control-plane 内容
+- 内容型任务和开发型任务缺少稳定 SOP
+- verify / handoff 过度依赖模型自觉，容易出现空 `verify.json`
+
+因此第一版改造方向是：
+
+- 模型只输出关键变化量
+- 程序负责稳定执行结构
+- shared flow context 与 slice-local context 明确分层
+- worker prompt 基于编译结果生成
+
+## Task Family
+
+当前第一版 family classifier 至少支持：
+
+- `repeated_entity_corpus`
+- `single_artifact_generation`
+- `bugfix_small`
+- `feature_module`
+- `feature_system`
+- `development_task`
+- `integration_external`
+- `review_or_audit`
+- `repair_or_resume`
+
+第一版已接入 runtime submit 分类，并把 `taskFamily` / `sopId` 写入 request record、task、request summary、intake summary、change summary。
+
+## 上下文四层模型
+
+### 1. Request Context
+
+- 用户原始需求
+- submit kind
+- 附加上下文
+
+### 2. Shared Flow Context
+
+- 整支 flow 共用的稳定上下文
+- shared spec / requirement spec / architecture contract / interface contract 引用
+- 边界摘要
+
+### 3. Slice-Local Context
+
+- 当前 execution slice id
+- 当前标题、摘要
+- 允许修改路径
+- 禁止修改路径
+- 当前输出目标
+- 当前 done criteria
+
+### 4. Runtime Control Context
+
+- dispatch id
+- accepted packet path
+- task contract path
+- session registry path
+- artifact dir
+
+原则：
+
+- shared flow context 由程序冻结
+- slice-local context 由程序编译
+- runtime control context 主要给程序，不要求 worker 大量读取
+
+## SOP Registry
+
+第一版 registry 在 `internal/orchestration` 中显式落下，当前至少注册：
+
+- `sop.repeated_entity_corpus.v1`
+- `sop.development_task.v1`
+
+## repeated_entity_corpus.v1
+
+固定阶段：
+
+1. `extract_shared_spec`
+2. `extract_variable_inputs`
+3. `compile_task_graph`
+4. `compile_worker_prompt`
+5. `programmatic_verify`
+6. `closeout`
+
+程序负责：
+
+- `shared-spec.json`
+- `variable-inputs.json`
+- `shared-flow-context.json`
+- `slice-context.json`
+- `verify-skeleton.json`
+- `takeover-context.json`
+
+worker 负责：
+
+- 只处理当前 entity slice
+- 或只处理 closeout slice
+
+## development_task.v1
+
+固定阶段：
+
+1. `requirement_spec`
+2. `architecture_contract`
+3. `interface_contract`
+4. `task_graph_compile`
+5. `worker_execute`
+6. `integration_verify`
+7. `closeout`
+
+程序负责：
+
+- `requirement-spec.json`
+- `architecture-contract.json`
+- `interface-contract.json`
+- `shared-flow-context.json`
+- `slice-context.json`
+- `verify-skeleton.json`
+- `takeover-context.json`
+
+worker 负责：
+
+- 只执行当前开发 slice
+- 不重排整条开发 flow
+
+## Worker Prompt Compile 原则
+
+prompt 从 `internal/worker/prompt_compiler.go` 生成，目标是：
+
+- 保留必要的 shared constraints
+- 显式暴露 compiled context 文件
+- 缩短 prompt 中控制面叙事
+- 保持 verify / handoff / takeover 为第一等输入
+
+prompt 默认引导 worker 先看：
+
+- `shared-context.json`
+- `shared-flow-context.json`
+- `slice-context.json`
+- `verify-skeleton.json`
+- `task-contract.json`
+
+而不是先扫大量 `.harness/state/*`。
+
+## Verify / Closeout 机制
+
+第一版增加程序化 `verify-skeleton.json`，避免 worker 输出空对象。
+
+对 repeated corpus，程序应优先检查：
+
+- 文件存在
+- 文件数量
+- section 完整性
+- 最低字数
+- support files
+
+对 development task，程序应优先检查：
+
+- 变更范围是否落在 allowed write globs
+- verify 命令是否有证据
+- handoff 是否说明完成项、风险和下一步
+
+## Multi-Session Continuation Protocol v1
+
+目标是让多个 session 通过文件接力，而不是靠长 prompt 继承上下文。
+
+第一版固定文件合同包括：
+
+- `shared-flow-context.json`
+- `slice-context.json`
+- `verify-skeleton.json`
+- `takeover-context.json`
+- `handoff.md`
+- `session-registry.json`
+
+下一个 session 应只需读取这些固定文件，就能知道：
+
+- 这一棒的 shared flow context 是什么
+- 当前 slice 能改什么、不能改什么
+- verify 需要补什么
+- handoff 应该如何接棒
+
+## 渐进迁移
+
+第一版采用兼容策略：
+
+- 显式带 `taskFamily` / `sopId` 的新任务走新编排
+- 历史未标注 family 的普通任务保留 legacy execution task 推导
+- repeated corpus 因为高度模式化，即使旧任务未显式标注 family，也允许优先匹配新 SOP
+
+这样可以先把机制落地，再逐步扩大覆盖面，而不是一次性推翻现有 runtime。

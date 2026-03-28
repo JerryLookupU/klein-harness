@@ -1,0 +1,193 @@
+package orchestration
+
+type TaskFamily string
+
+const (
+	TaskFamilyRepeatedEntityCorpus TaskFamily = "repeated_entity_corpus"
+	TaskFamilySingleArtifact       TaskFamily = "single_artifact_generation"
+	TaskFamilyBugfixSmall          TaskFamily = "bugfix_small"
+	TaskFamilyFeatureModule        TaskFamily = "feature_module"
+	TaskFamilyFeatureSystem        TaskFamily = "feature_system"
+	TaskFamilyDevelopmentTask      TaskFamily = "development_task"
+	TaskFamilyIntegrationExternal  TaskFamily = "integration_external"
+	TaskFamilyReviewOrAudit        TaskFamily = "review_or_audit"
+	TaskFamilyRepairOrResume       TaskFamily = "repair_or_resume"
+	TaskFamilyUnknown              TaskFamily = "unknown"
+)
+
+const (
+	SOPRepeatedEntityCorpusV1 = "sop.repeated_entity_corpus.v1"
+	SOPDevelopmentTaskV1      = "sop.development_task.v1"
+)
+
+type SOPPhase struct {
+	ID          string   `json:"id"`
+	Description string   `json:"description"`
+	ModelOutput []string `json:"modelOutput,omitempty"`
+	ProgramOwns []string `json:"programOwns,omitempty"`
+}
+
+type VerifyRuleSpec struct {
+	ID          string `json:"id"`
+	Description string `json:"description"`
+}
+
+type CloseoutRuleSpec struct {
+	ID          string `json:"id"`
+	Description string `json:"description"`
+}
+
+type SOPDefinition struct {
+	ID                    string             `json:"id"`
+	Family                TaskFamily         `json:"family"`
+	Description           string             `json:"description"`
+	DirectPassEligible    bool               `json:"directPassEligible"`
+	Phases                []SOPPhase         `json:"phases"`
+	VerifyRules           []VerifyRuleSpec   `json:"verifyRules,omitempty"`
+	CloseoutRules         []CloseoutRuleSpec `json:"closeoutRules,omitempty"`
+	ContinuationArtifacts []string           `json:"continuationArtifacts,omitempty"`
+}
+
+type RequestContext struct {
+	Goal     string   `json:"goal,omitempty"`
+	Kind     string   `json:"kind,omitempty"`
+	Contexts []string `json:"contexts,omitempty"`
+}
+
+type SharedFlowContext struct {
+	TaskFamily      TaskFamily `json:"taskFamily,omitempty"`
+	SOPID           string     `json:"sopId,omitempty"`
+	Summary         string     `json:"summary,omitempty"`
+	SharedSpecRef   string     `json:"sharedSpecRef,omitempty"`
+	VariableRef     string     `json:"variableRef,omitempty"`
+	ScopeRef        string     `json:"scopeRef,omitempty"`
+	ModulePlanRef   string     `json:"modulePlanRef,omitempty"`
+	InterfaceRef    string     `json:"interfaceRef,omitempty"`
+	VerifyPlanRef   string     `json:"verifyPlanRef,omitempty"`
+	BoundarySummary []string   `json:"boundarySummary,omitempty"`
+}
+
+type SliceLocalContext struct {
+	ExecutionSliceID    string   `json:"executionSliceId,omitempty"`
+	Title               string   `json:"title,omitempty"`
+	Summary             string   `json:"summary,omitempty"`
+	AllowedWriteGlobs   []string `json:"allowedWriteGlobs,omitempty"`
+	ForbiddenWriteGlobs []string `json:"forbiddenWriteGlobs,omitempty"`
+	OutputTargets       []string `json:"outputTargets,omitempty"`
+	DoneCriteria        []string `json:"doneCriteria,omitempty"`
+	Inputs              []string `json:"inputs,omitempty"`
+}
+
+type RuntimeControlContext struct {
+	TaskID              string `json:"taskId,omitempty"`
+	DispatchID          string `json:"dispatchId,omitempty"`
+	LeaseID             string `json:"leaseId,omitempty"`
+	AcceptedPacketPath  string `json:"acceptedPacketPath,omitempty"`
+	TaskContractPath    string `json:"taskContractPath,omitempty"`
+	SessionRegistryPath string `json:"sessionRegistryPath,omitempty"`
+	ArtifactDir         string `json:"artifactDir,omitempty"`
+}
+
+type ContextLayers struct {
+	Request        RequestContext        `json:"request"`
+	SharedFlow     SharedFlowContext     `json:"sharedFlow"`
+	SliceLocal     SliceLocalContext     `json:"sliceLocal"`
+	RuntimeControl RuntimeControlContext `json:"runtimeControl"`
+}
+
+type VerifyCheck struct {
+	ID          string `json:"id"`
+	Kind        string `json:"kind"`
+	Target      string `json:"target,omitempty"`
+	Description string `json:"description"`
+}
+
+type VerifySkeleton struct {
+	SchemaVersion     string        `json:"schemaVersion"`
+	TaskID            string        `json:"taskId,omitempty"`
+	DispatchID        string        `json:"dispatchId,omitempty"`
+	TaskFamily        TaskFamily    `json:"taskFamily,omitempty"`
+	SOPID             string        `json:"sopId,omitempty"`
+	RequiredArtifacts []string      `json:"requiredArtifacts,omitempty"`
+	Checks            []VerifyCheck `json:"checks,omitempty"`
+	Notes             []string      `json:"notes,omitempty"`
+}
+
+type ContinuationProtocol struct {
+	SchemaVersion         string   `json:"schemaVersion"`
+	TaskID                string   `json:"taskId,omitempty"`
+	DispatchID            string   `json:"dispatchId,omitempty"`
+	SharedFlowContextPath string   `json:"sharedFlowContextPath,omitempty"`
+	SliceContextPath      string   `json:"sliceContextPath,omitempty"`
+	VerifySkeletonPath    string   `json:"verifySkeletonPath,omitempty"`
+	HandoffPath           string   `json:"handoffPath,omitempty"`
+	SessionRegistryPath   string   `json:"sessionRegistryPath,omitempty"`
+	AllowedWriteGlobs     []string `json:"allowedWriteGlobs,omitempty"`
+	ForbiddenWriteGlobs   []string `json:"forbiddenWriteGlobs,omitempty"`
+}
+
+type RepeatedEntitySharedSpec struct {
+	OutputRoot           string   `json:"output_root,omitempty"`
+	FileNamingRule       string   `json:"file_naming_rule,omitempty"`
+	RequiredSupportFiles []string `json:"required_support_files,omitempty"`
+	RequiredSections     []string `json:"required_sections,omitempty"`
+	MinChars             int      `json:"min_chars,omitempty"`
+	SourcePolicy         string   `json:"source_policy,omitempty"`
+	OrderingPolicy       string   `json:"ordering_policy,omitempty"`
+	IndexFilename        string   `json:"index_filename,omitempty"`
+}
+
+type RepeatedEntityInput struct {
+	EntityLabel string `json:"entity_label"`
+	Slug        string `json:"slug"`
+	TargetFile  string `json:"target_file,omitempty"`
+	CoreAngle   string `json:"core_angle,omitempty"`
+}
+
+type RepeatedEntityVariableInputs struct {
+	Entities []RepeatedEntityInput `json:"entities,omitempty"`
+}
+
+type DevelopmentRequirementSpec struct {
+	Goal            string   `json:"goal,omitempty"`
+	InScope         []string `json:"in_scope,omitempty"`
+	OutOfScope      []string `json:"out_of_scope,omitempty"`
+	SuccessCriteria []string `json:"success_criteria,omitempty"`
+	UserFlows       []string `json:"user_flows,omitempty"`
+	Constraints     []string `json:"constraints,omitempty"`
+	Risks           []string `json:"risks,omitempty"`
+}
+
+type DevelopmentArchitectureContract struct {
+	TargetModules []string `json:"target_modules,omitempty"`
+	NewPaths      []string `json:"new_paths,omitempty"`
+	AffectedPaths []string `json:"affected_paths,omitempty"`
+	ReusePoints   []string `json:"reuse_points,omitempty"`
+	BoundaryRules []string `json:"boundary_rules,omitempty"`
+	CoreTypes     []string `json:"core_types,omitempty"`
+	CoreServices  []string `json:"core_services,omitempty"`
+	DataFlow      []string `json:"data_flow,omitempty"`
+	StateFlow     []string `json:"state_flow,omitempty"`
+	ErrorFlow     []string `json:"error_flow,omitempty"`
+}
+
+type DevelopmentInterfaceContract struct {
+	APIEndpoints    []string `json:"api_endpoints,omitempty"`
+	RequestShapes   []string `json:"request_shapes,omitempty"`
+	ResponseShapes  []string `json:"response_shapes,omitempty"`
+	DomainModels    []string `json:"domain_models,omitempty"`
+	ValidationRules []string `json:"validation_rules,omitempty"`
+}
+
+type CompiledFlow struct {
+	Family                 TaskFamily                       `json:"family"`
+	SOPID                  string                           `json:"sopId,omitempty"`
+	SharedSpec             any                              `json:"sharedSpec,omitempty"`
+	VariableInputs         any                              `json:"variableInputs,omitempty"`
+	RequirementSpec        *DevelopmentRequirementSpec      `json:"requirementSpec,omitempty"`
+	ArchitectureContract   *DevelopmentArchitectureContract `json:"architectureContract,omitempty"`
+	InterfaceContract      *DevelopmentInterfaceContract    `json:"interfaceContract,omitempty"`
+	ExecutionTasks         []ExecutionTask                  `json:"executionTasks,omitempty"`
+	SharedTaskGroupContext *SharedTaskGroupContext          `json:"sharedTaskGroupContext,omitempty"`
+	SharedFlowContext      SharedFlowContext                `json:"sharedFlowContext"`
+}

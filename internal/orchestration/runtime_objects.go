@@ -76,6 +76,8 @@ type AcceptedPacket struct {
 	Generator                     string                  `json:"generator"`
 	GeneratedAt                   string                  `json:"generatedAt"`
 	TaskID                        string                  `json:"taskId"`
+	TaskFamily                    TaskFamily              `json:"taskFamily,omitempty"`
+	SOPID                         string                  `json:"sopId,omitempty"`
 	ThreadKey                     string                  `json:"threadKey"`
 	PlanEpoch                     int                     `json:"planEpoch"`
 	PacketID                      string                  `json:"packetId"`
@@ -86,6 +88,8 @@ type AcceptedPacket struct {
 	SelectedPlan                  string                  `json:"selectedPlan"`
 	RejectedAlternatives          []RejectedAlternative   `json:"rejectedAlternatives,omitempty"`
 	SharedContext                 *SharedTaskGroupContext `json:"sharedContext,omitempty"`
+	SharedFlowContextPath         string                  `json:"sharedFlowContextPath,omitempty"`
+	VariableInputsPath            string                  `json:"variableInputsPath,omitempty"`
 	ExecutionTasks                []ExecutionTask         `json:"executionTasks"`
 	VerificationPlan              map[string]any          `json:"verificationPlan"`
 	DecisionRationale             string                  `json:"decisionRationale"`
@@ -116,6 +120,8 @@ type TaskContract struct {
 	GeneratedAt           string                      `json:"generatedAt"`
 	ContractID            string                      `json:"contractId"`
 	TaskID                string                      `json:"taskId"`
+	TaskFamily            TaskFamily                  `json:"taskFamily,omitempty"`
+	SOPID                 string                      `json:"sopId,omitempty"`
 	DispatchID            string                      `json:"dispatchId"`
 	ThreadKey             string                      `json:"threadKey"`
 	PlanEpoch             int                         `json:"planEpoch"`
@@ -123,6 +129,8 @@ type TaskContract struct {
 	Objective             string                      `json:"objective"`
 	InScope               []string                    `json:"inScope,omitempty"`
 	OutOfScope            []string                    `json:"outOfScope,omitempty"`
+	AllowedWriteGlobs     []string                    `json:"allowedWriteGlobs,omitempty"`
+	ForbiddenWriteGlobs   []string                    `json:"forbiddenWriteGlobs,omitempty"`
 	DoneCriteria          []string                    `json:"doneCriteria,omitempty"`
 	AcceptanceMarkers     []string                    `json:"acceptanceMarkers,omitempty"`
 	VerificationChecklist []VerificationChecklistItem `json:"verificationChecklist,omitempty"`
@@ -133,6 +141,9 @@ type TaskContract struct {
 	AcceptedBy            string                      `json:"acceptedBy"`
 	AcceptedAt            string                      `json:"acceptedAt"`
 	AcceptedPacketPath    string                      `json:"acceptedPacketPath,omitempty"`
+	SharedFlowContextPath string                      `json:"sharedFlowContextPath,omitempty"`
+	SliceContextPath      string                      `json:"sliceContextPath,omitempty"`
+	VerifySkeletonPath    string                      `json:"verifySkeletonPath,omitempty"`
 }
 
 type PacketProgress struct {

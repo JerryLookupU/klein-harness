@@ -33,6 +33,9 @@ func TestSubmitWritesIntakeThreadChangeAndTodoSummaries(t *testing.T) {
 	if result.Request.FrontDoorTriage == "" || result.Request.NormalizedIntentClass == "" || result.Request.FusionDecision == "" {
 		t.Fatalf("expected intake metadata on request: %+v", result.Request)
 	}
+	if result.Request.TaskFamily == "" || result.Task.TaskFamily == "" {
+		t.Fatalf("expected task family metadata on request/task: %+v %+v", result.Request, result.Task)
+	}
 
 	var intake IntakeSummary
 	if err := state.LoadJSON(filepath.Join(root, ".harness", "state", "intake-summary.json"), &intake); err != nil {
@@ -65,6 +68,27 @@ func TestSubmitWritesIntakeThreadChangeAndTodoSummaries(t *testing.T) {
 	}
 	if todo.NextTaskID != result.Task.TaskID || todo.PendingCount != 1 {
 		t.Fatalf("unexpected todo summary: %+v", todo)
+	}
+}
+
+func TestSubmitAssignsRepeatedEntityCorpusFamilyAndSOP(t *testing.T) {
+	root := t.TempDir()
+	if _, err := bootstrap.Init(root); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+
+	result, err := Submit(SubmitRequest{
+		Root: root,
+		Goal: "生成 10 个世界上最伟大的程序员 markdown 文档，每个人不少于 2000 字",
+	})
+	if err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+	if result.Task.TaskFamily != "repeated_entity_corpus" || result.Task.SOPID != "sop.repeated_entity_corpus.v1" {
+		t.Fatalf("expected repeated corpus family+sop, got %+v", result.Task)
+	}
+	if result.Request.TaskFamily != "repeated_entity_corpus" || result.Request.SOPID != "sop.repeated_entity_corpus.v1" {
+		t.Fatalf("expected request to persist family+sop, got %+v", result.Request)
 	}
 }
 

@@ -15,6 +15,8 @@ type RequestRecord struct {
 	TargetThreadKey       string   `json:"targetThreadKey,omitempty"`
 	TargetPlanEpoch       int      `json:"targetPlanEpoch,omitempty"`
 	Kind                  string   `json:"kind,omitempty"`
+	TaskFamily            string   `json:"taskFamily,omitempty"`
+	SOPID                 string   `json:"sopId,omitempty"`
 	Goal                  string   `json:"goal"`
 	Contexts              []string `json:"contexts,omitempty"`
 	Status                string   `json:"status"`
@@ -39,6 +41,8 @@ type RequestSummary struct {
 	FusionDecision        string `json:"fusionDecision,omitempty"`
 	BindingAction         string `json:"bindingAction,omitempty"`
 	TargetPlanEpoch       int    `json:"targetPlanEpoch,omitempty"`
+	TaskFamily            string `json:"taskFamily,omitempty"`
+	SOPID                 string `json:"sopId,omitempty"`
 	RequestCount          int    `json:"requestCount"`
 	ReusedTaskCount       int    `json:"reusedTaskCount"`
 	CreatedTaskCount      int    `json:"createdTaskCount"`
@@ -69,6 +73,8 @@ type IntakeSummary struct {
 	FrontDoorTriage       string `json:"frontDoorTriage,omitempty"`
 	NormalizedIntentClass string `json:"normalizedIntentClass,omitempty"`
 	FusionDecision        string `json:"fusionDecision,omitempty"`
+	TaskFamily            string `json:"taskFamily,omitempty"`
+	SOPID                 string `json:"sopId,omitempty"`
 	RequestCount          int    `json:"requestCount"`
 	ActiveThreadCount     int    `json:"activeThreadCount"`
 }
@@ -100,6 +106,8 @@ type ChangeSummary struct {
 	LatestTaskID     string `json:"latestTaskId,omitempty"`
 	TargetThreadKey  string `json:"targetThreadKey,omitempty"`
 	ChangeKind       string `json:"changeKind,omitempty"`
+	TaskFamily       string `json:"taskFamily,omitempty"`
+	SOPID            string `json:"sopId,omitempty"`
 	Summary          string `json:"summary,omitempty"`
 	AffectsExecution bool   `json:"affectsExecution"`
 }
