@@ -102,6 +102,23 @@ func TestSubmitAssignsRepeatedEntityCorpusFamilyAndSOP(t *testing.T) {
 	if runtimeState.CurrentDispatchID != "" || runtimeState.CurrentExecutionSliceID != "" || runtimeState.CurrentTakeoverPath != "" {
 		t.Fatalf("submit should not set execution refs before dispatch, got %+v", runtimeState)
 	}
+
+	routeInput, err := BuildRouteInput(root, result.Task, result.Task.PlanEpoch, false, false, "state.v9")
+	if err != nil {
+		t.Fatalf("build route input: %v", err)
+	}
+	if routeInput.TaskFamily != "repeated_entity_corpus" || routeInput.SOPID != "sop.repeated_entity_corpus.v1" {
+		t.Fatalf("expected route input to keep repeated corpus classification, got %+v", routeInput)
+	}
+	decision := route.Evaluate(routeInput)
+	for _, want := range []string{
+		"policy_shared_spec_frozen",
+		"policy_programmatic_verify_first",
+	} {
+		if !containsString(decision.ReasonCodes, want) {
+			t.Fatalf("expected repeated corpus route policy %q, got %+v", want, decision.ReasonCodes)
+		}
+	}
 }
 
 func TestSubmitReusesQueuedTaskForSameCanonicalGoal(t *testing.T) {
@@ -578,6 +595,15 @@ func TestEnsureTaskClassificationBackfillsLegacyTaskMetadata(t *testing.T) {
 	}
 	if routeInput.TaskFamily != "repair_or_resume" || routeInput.SOPID != "sop.development_task.v1" {
 		t.Fatalf("expected route input to carry backfilled classification, got %+v", routeInput)
+	}
+	decision := route.Evaluate(routeInput)
+	for _, want := range []string{
+		"policy_compiled_contract_first",
+		"policy_resume_state_first",
+	} {
+		if !containsString(decision.ReasonCodes, want) {
+			t.Fatalf("expected backfilled route policy %q, got %+v", want, decision.ReasonCodes)
+		}
 	}
 }
 

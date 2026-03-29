@@ -1,4 +1,4 @@
-# SOP Runtime Blueprint
+# SOP Runtime 蓝图
 
 ## 目标
 
@@ -28,7 +28,7 @@
 - shared flow context 与 slice-local context 明确分层
 - worker prompt 基于编译结果生成
 
-## Task Family
+## Task Family 分类
 
 当前第一版 family classifier 至少支持：
 
