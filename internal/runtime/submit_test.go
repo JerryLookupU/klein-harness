@@ -90,6 +90,16 @@ func TestSubmitAssignsRepeatedEntityCorpusFamilyAndSOP(t *testing.T) {
 	if result.Request.TaskFamily != "repeated_entity_corpus" || result.Request.SOPID != "sop.repeated_entity_corpus.v1" {
 		t.Fatalf("expected request to persist family+sop, got %+v", result.Request)
 	}
+	var runtimeState RuntimeState
+	if err := state.LoadJSON(filepath.Join(root, ".harness", "state", "runtime.json"), &runtimeState); err != nil {
+		t.Fatalf("load runtime state: %v", err)
+	}
+	if runtimeState.ActiveTaskID != result.Task.TaskID || runtimeState.ActiveTaskFamily != "repeated_entity_corpus" || runtimeState.ActiveSOPID != "sop.repeated_entity_corpus.v1" {
+		t.Fatalf("expected runtime state to track active classification, got %+v", runtimeState)
+	}
+	if runtimeState.CurrentDispatchID != "" || runtimeState.CurrentExecutionSliceID != "" || runtimeState.CurrentTakeoverPath != "" {
+		t.Fatalf("submit should not set execution refs before dispatch, got %+v", runtimeState)
+	}
 }
 
 func TestSubmitReusesQueuedTaskForSameCanonicalGoal(t *testing.T) {

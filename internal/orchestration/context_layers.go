@@ -17,6 +17,8 @@ type ContinuationProtocolInput struct {
 	SOPID                 string
 	ExecutionSliceID      string
 	ResumeStrategy        string
+	ResumeSessionID       string
+	TaskStatus            string
 	ContextLayersPath     string
 	RequestContextPath    string
 	RuntimeContextPath    string
@@ -30,10 +32,13 @@ type ContinuationProtocolInput struct {
 	HandoffContractPath   string
 	HandoffPath           string
 	SessionRegistryPath   string
+	ArtifactDir           string
 	ReadOrder             []string
 	RequiredArtifacts     []string
 	AllowedWriteGlobs     []string
 	ForbiddenWriteGlobs   []string
+	EntryChecklist        []string
+	ControlPlaneGuards    []string
 }
 
 func BuildContinuationProtocol(input ContinuationProtocolInput) ContinuationProtocol {
@@ -46,6 +51,8 @@ func BuildContinuationProtocol(input ContinuationProtocolInput) ContinuationProt
 		SOPID:                 input.SOPID,
 		ExecutionSliceID:      input.ExecutionSliceID,
 		ResumeStrategy:        input.ResumeStrategy,
+		ResumeSessionID:       input.ResumeSessionID,
+		TaskStatus:            input.TaskStatus,
 		ContextLayersPath:     input.ContextLayersPath,
 		RequestContextPath:    input.RequestContextPath,
 		RuntimeContextPath:    input.RuntimeContextPath,
@@ -59,10 +66,13 @@ func BuildContinuationProtocol(input ContinuationProtocolInput) ContinuationProt
 		HandoffContractPath:   input.HandoffContractPath,
 		HandoffPath:           input.HandoffPath,
 		SessionRegistryPath:   input.SessionRegistryPath,
+		ArtifactDir:           input.ArtifactDir,
 		ReadOrder:             uniqueStrings(input.ReadOrder),
 		RequiredArtifacts:     uniqueStrings(input.RequiredArtifacts),
 		AllowedWriteGlobs:     uniqueStrings(input.AllowedWriteGlobs),
 		ForbiddenWriteGlobs:   uniqueStrings(input.ForbiddenWriteGlobs),
+		EntryChecklist:        uniqueStrings(input.EntryChecklist),
+		ControlPlaneGuards:    uniqueStrings(input.ControlPlaneGuards),
 	}
 }
 

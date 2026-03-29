@@ -90,6 +90,18 @@
 - runtime 另外会聚合生成 `context-layers.json`，让下一 session 按固定入口接棒
 - control/query 面会显式暴露这些 compiled context refs，便于 operator 追踪当前 slice 绑定的是哪一套合同
 
+同时 runtime 真相账本 `runtime.json` 现在会显式跟踪：
+
+- `activeTaskId` / `activeTaskFamily` / `activeSopId`
+- `currentDispatchId` / `currentExecutionSliceId`
+- `currentResumeSessionId`
+- `currentTakeoverPath` / `currentContextLayersPath`
+- `currentTaskGraphPath` / `currentVerifySkeletonPath` / `currentCloseoutPath`
+- `currentHandoffPath` / `currentArtifactDir`
+- `lastVerificationStatus` / `lastFollowUp`
+
+这样 operator 不必反向猜测“当前 runtime 正卡在哪个 slice、哪一套 takeover 合同、哪一轮 verify”。
+
 ## SOP Registry
 
 第一版 registry 在 `internal/orchestration` 中显式落下，当前至少注册：
@@ -225,6 +237,16 @@ runtime 侧额外增加一条硬闸门：
 - `handoff.md`
 - `session-registry.json`
 
+其中 `takeover-context.json` 现在不只是 path list，还会额外携带：
+
+- `resumeSessionId`
+- `taskStatus`
+- `artifactDir`
+- `entryChecklist`
+- `controlPlaneGuards`
+
+也就是说，下一次 session 拿到 takeover 合同后，不仅知道读哪些文件，也知道当前任务状态、恢复入口和必须遵守的控制面边界。
+
 下一个 session 应只需读取这些固定文件，就能知道：
 
 - 本轮 request / runtime control 是什么
@@ -238,12 +260,17 @@ runtime 侧额外增加一条硬闸门：
 推荐 read order：
 
 1. `context-layers.json`
-2. `shared-flow-context.json`
-3. `slice-context.json`
-4. `verify-skeleton.json`
-5. `closeout-skeleton.json`
-6. `handoff-contract.json`
-7. `handoff.md`
+2. `request-context.json`
+3. `runtime-control-context.json`
+4. `shared-flow-context.json`
+5. `task-graph.json`
+6. `slice-context.json`
+7. `task-contract.json`
+8. `verify-skeleton.json`
+9. `closeout-skeleton.json`
+10. `handoff-contract.json`
+11. `session-registry.json`
+12. `handoff.md`
 
 ## 渐进迁移
 

@@ -275,24 +275,28 @@ func TestPrepareWritesDispatchTicketWorkerSpecAndPrompt(t *testing.T) {
 	}
 
 	var workerSpec struct {
-		SchemaVersion        string   `json:"schemaVersion"`
-		DispatchID           string   `json:"dispatchId"`
-		TaskID               string   `json:"taskId"`
-		TaskFamily           string   `json:"taskFamily"`
-		SOPID                string   `json:"sopId"`
-		ThreadKey            string   `json:"threadKey"`
-		PlanEpoch            int      `json:"planEpoch"`
-		Objective            string   `json:"objective"`
-		SelectedPlan         string   `json:"selectedPlan"`
-		AcceptanceMarkers    []string `json:"acceptanceMarkers"`
-		ConstraintPath       string   `json:"constraintPath"`
-		SharedContextPath    string   `json:"sharedContextPath"`
-		TaskGraphPath        string   `json:"taskGraphPath"`
-		RequestContextPath   string   `json:"requestContextPath"`
-		RuntimeContextPath   string   `json:"runtimeContextPath"`
-		ContextLayersPath    string   `json:"contextLayersPath"`
-		CloseoutSkeletonPath string   `json:"closeoutSkeletonPath"`
-		HandoffContractPath  string   `json:"handoffContractPath"`
+		SchemaVersion         string   `json:"schemaVersion"`
+		DispatchID            string   `json:"dispatchId"`
+		TaskID                string   `json:"taskId"`
+		TaskFamily            string   `json:"taskFamily"`
+		SOPID                 string   `json:"sopId"`
+		ThreadKey             string   `json:"threadKey"`
+		PlanEpoch             int      `json:"planEpoch"`
+		Objective             string   `json:"objective"`
+		SelectedPlan          string   `json:"selectedPlan"`
+		AcceptanceMarkers     []string `json:"acceptanceMarkers"`
+		ConstraintPath        string   `json:"constraintPath"`
+		SharedContextPath     string   `json:"sharedContextPath"`
+		SharedFlowContextPath string   `json:"sharedFlowContextPath"`
+		SliceContextPath      string   `json:"sliceContextPath"`
+		TaskContractPath      string   `json:"taskContractPath"`
+		TaskGraphPath         string   `json:"taskGraphPath"`
+		RequestContextPath    string   `json:"requestContextPath"`
+		RuntimeContextPath    string   `json:"runtimeContextPath"`
+		ContextLayersPath     string   `json:"contextLayersPath"`
+		VerifySkeletonPath    string   `json:"verifySkeletonPath"`
+		CloseoutSkeletonPath  string   `json:"closeoutSkeletonPath"`
+		HandoffContractPath   string   `json:"handoffContractPath"`
 	}
 	workerSpecPayload, err := os.ReadFile(bundle.WorkerSpecPath)
 	if err != nil {
@@ -320,10 +324,14 @@ func TestPrepareWritesDispatchTicketWorkerSpecAndPrompt(t *testing.T) {
 		t.Fatalf("worker spec missing shared context path: %+v", workerSpec)
 	}
 	for _, path := range []string{
+		workerSpec.SharedFlowContextPath,
+		workerSpec.SliceContextPath,
+		workerSpec.TaskContractPath,
 		workerSpec.TaskGraphPath,
 		workerSpec.RequestContextPath,
 		workerSpec.RuntimeContextPath,
 		workerSpec.ContextLayersPath,
+		workerSpec.VerifySkeletonPath,
 		workerSpec.CloseoutSkeletonPath,
 		workerSpec.HandoffContractPath,
 	} {
@@ -498,19 +506,53 @@ func TestPrepareWritesDispatchTicketWorkerSpecAndPrompt(t *testing.T) {
 
 	var takeover struct {
 		SchemaVersion        string   `json:"schemaVersion"`
+		ResumeSessionID      string   `json:"resumeSessionId"`
+		TaskStatus           string   `json:"taskStatus"`
+		ArtifactDir          string   `json:"artifactDir"`
+		RequestContextPath   string   `json:"requestContextPath"`
+		RuntimeContextPath   string   `json:"runtimeContextPath"`
 		ContextLayersPath    string   `json:"contextLayersPath"`
+		TaskContractPath     string   `json:"taskContractPath"`
 		TaskGraphPath        string   `json:"taskGraphPath"`
 		CloseoutSkeletonPath string   `json:"closeoutSkeletonPath"`
 		HandoffContractPath  string   `json:"handoffContractPath"`
 		ReadOrder            []string `json:"readOrder"`
+		RequiredArtifacts    []string `json:"requiredArtifacts"`
+		SessionRegistryPath  string   `json:"sessionRegistryPath"`
+		EntryChecklist       []string `json:"entryChecklist"`
+		ControlPlaneGuards   []string `json:"controlPlaneGuards"`
 	}
 	if payload, err := os.ReadFile(filepath.Join(bundle.ArtifactDir, "takeover-context.json")); err != nil {
 		t.Fatalf("read takeover context: %v", err)
 	} else if err := json.Unmarshal(payload, &takeover); err != nil {
 		t.Fatalf("unmarshal takeover context: %v", err)
 	}
-	if takeover.SchemaVersion != "kh.multi-session-continuation.v1" || takeover.ContextLayersPath == "" || takeover.TaskGraphPath == "" || takeover.CloseoutSkeletonPath == "" || takeover.HandoffContractPath == "" || len(takeover.ReadOrder) == 0 {
+	if takeover.SchemaVersion != "kh.multi-session-continuation.v1" || takeover.RequestContextPath == "" || takeover.RuntimeContextPath == "" || takeover.ContextLayersPath == "" || takeover.TaskContractPath == "" || takeover.TaskGraphPath == "" || takeover.CloseoutSkeletonPath == "" || takeover.HandoffContractPath == "" || takeover.SessionRegistryPath == "" || len(takeover.ReadOrder) == 0 || len(takeover.RequiredArtifacts) == 0 {
 		t.Fatalf("unexpected continuation protocol: %+v", takeover)
+	}
+	if takeover.ResumeSessionID != "sess-1" || takeover.TaskStatus == "" || takeover.ArtifactDir != bundle.ArtifactDir || len(takeover.EntryChecklist) == 0 || len(takeover.ControlPlaneGuards) == 0 {
+		t.Fatalf("expected continuation protocol to carry resume/session state, got %+v", takeover)
+	}
+	for _, want := range []string{
+		workerSpec.ContextLayersPath,
+		workerSpec.RequestContextPath,
+		workerSpec.RuntimeContextPath,
+		workerSpec.SharedFlowContextPath,
+		workerSpec.TaskGraphPath,
+		workerSpec.SliceContextPath,
+		workerSpec.TaskContractPath,
+		workerSpec.VerifySkeletonPath,
+		workerSpec.CloseoutSkeletonPath,
+		workerSpec.HandoffContractPath,
+		filepath.Join(root, ".harness", "state", "session-registry.json"),
+		filepath.Join(bundle.ArtifactDir, "handoff.md"),
+	} {
+		if !containsSubstring(takeover.ReadOrder, want) {
+			t.Fatalf("expected takeover read order to include %q, got %+v", want, takeover.ReadOrder)
+		}
+		if !containsSubstring(takeover.RequiredArtifacts, want) {
+			t.Fatalf("expected takeover required artifacts to include %q, got %+v", want, takeover.RequiredArtifacts)
+		}
 	}
 }
 

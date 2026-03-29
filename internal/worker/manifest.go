@@ -64,6 +64,13 @@ type DispatchBundle struct {
 	PlanningTracePath  string
 	AcceptedPacketPath string
 	TaskContractPath   string
+	TaskGraphPath      string
+	ContextLayersPath  string
+	VerifySkeletonPath string
+	CloseoutPath       string
+	HandoffPath        string
+	TakeoverPath       string
+	ExecutionSliceID   string
 	ArtifactDir        string
 	CommandBanner      string
 }
@@ -384,6 +391,8 @@ func Prepare(root string, ticket dispatch.Ticket, leaseID string) (DispatchBundl
 		SOPID:                 task.SOPID,
 		ExecutionSliceID:      taskContract.ExecutionSliceID,
 		ResumeStrategy:        task.ResumeStrategy,
+		ResumeSessionID:       ticket.ResumeSessionID,
+		TaskStatus:            coalesce(task.Status, "prepared"),
 		ContextLayersPath:     contextLayersPath,
 		RequestContextPath:    requestContextPath,
 		RuntimeContextPath:    runtimeContextPath,
@@ -397,26 +406,47 @@ func Prepare(root string, ticket dispatch.Ticket, leaseID string) (DispatchBundl
 		HandoffContractPath:   handoffContractPath,
 		HandoffPath:           filepath.Join(artifactDir, "handoff.md"),
 		SessionRegistryPath:   paths.SessionRegistryPath,
+		ArtifactDir:           artifactDir,
 		ReadOrder: []string{
 			contextLayersPath,
+			requestContextPath,
+			runtimeContextPath,
 			sharedFlowContextPath,
+			taskGraphPath,
 			sliceContextPath,
+			taskContractPath,
 			verifySkeletonPath,
 			closeoutSkeletonPath,
 			handoffContractPath,
+			paths.SessionRegistryPath,
 			filepath.Join(artifactDir, "handoff.md"),
 		},
 		RequiredArtifacts: []string{
 			contextLayersPath,
+			requestContextPath,
+			runtimeContextPath,
 			sharedFlowContextPath,
+			taskGraphPath,
 			sliceContextPath,
+			taskContractPath,
 			verifySkeletonPath,
 			closeoutSkeletonPath,
 			handoffContractPath,
+			paths.SessionRegistryPath,
 			filepath.Join(artifactDir, "handoff.md"),
 		},
 		AllowedWriteGlobs:   taskContract.AllowedWriteGlobs,
 		ForbiddenWriteGlobs: taskContract.ForbiddenWriteGlobs,
+		EntryChecklist: []string{
+			"Resume from context-layers.json before reading any global runtime ledger.",
+			"Re-open shared-flow-context.json and slice-context.json before editing code.",
+			"Treat verify-skeleton.json, closeout-skeleton.json, and handoff-contract.json as the authoritative closeout contract.",
+		},
+		ControlPlaneGuards: []string{
+			"Do not mutate global .harness/state truth ledgers.",
+			"Do not re-plan the full flow or rewrite shared flow context.",
+			"Stay inside allowedWriteGlobs and forbiddenWriteGlobs.",
+		},
 	})
 	if err := writeJSON(takeoverPath, takeoverContract); err != nil {
 		return DispatchBundle{}, err
@@ -643,6 +673,13 @@ func Prepare(root string, ticket dispatch.Ticket, leaseID string) (DispatchBundl
 		PlanningTracePath:  planningTracePath,
 		AcceptedPacketPath: acceptedPacketPath,
 		TaskContractPath:   taskContractPath,
+		TaskGraphPath:      taskGraphPath,
+		ContextLayersPath:  contextLayersPath,
+		VerifySkeletonPath: verifySkeletonPath,
+		CloseoutPath:       closeoutSkeletonPath,
+		HandoffPath:        handoffContractPath,
+		TakeoverPath:       takeoverPath,
+		ExecutionSliceID:   taskContract.ExecutionSliceID,
 		ArtifactDir:        artifactDir,
 		CommandBanner:      commandBanner,
 	}, nil

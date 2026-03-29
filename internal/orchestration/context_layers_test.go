@@ -20,6 +20,8 @@ func TestBuildContextLayersAndContinuationProtocol(t *testing.T) {
 		SOPID:                 SOPDevelopmentTaskV1,
 		ExecutionSliceID:      "T-1.slice.1",
 		ResumeStrategy:        "resume",
+		ResumeSessionID:       "sess-1",
+		TaskStatus:            "running",
 		ContextLayersPath:     "/repo/.harness/artifacts/T-1/context-layers.json",
 		RequestContextPath:    "/repo/.harness/artifacts/T-1/request-context.json",
 		RuntimeContextPath:    "/repo/.harness/artifacts/T-1/runtime-control-context.json",
@@ -33,10 +35,13 @@ func TestBuildContextLayersAndContinuationProtocol(t *testing.T) {
 		HandoffContractPath:   "/repo/.harness/artifacts/T-1/handoff-contract.json",
 		HandoffPath:           "/repo/.harness/artifacts/T-1/handoff.md",
 		SessionRegistryPath:   "/repo/.harness/state/session-registry.json",
+		ArtifactDir:           "/repo/.harness/artifacts/T-1/dispatch-1",
 		ReadOrder:             []string{"context-layers.json", "shared-flow-context.json", "slice-context.json"},
 		RequiredArtifacts:     []string{"context-layers.json", "verify-skeleton.json", "handoff.md"},
 		AllowedWriteGlobs:     []string{"internal/runtime/**"},
 		ForbiddenWriteGlobs:   []string{".harness/**"},
+		EntryChecklist:        []string{"resume from context-layers.json"},
+		ControlPlaneGuards:    []string{"do not mutate global .harness/state truth ledgers"},
 	})
 	if protocol.SchemaVersion != "kh.multi-session-continuation.v1" || protocol.ProtocolID == "" {
 		t.Fatalf("unexpected continuation protocol: %+v", protocol)
@@ -44,7 +49,10 @@ func TestBuildContextLayersAndContinuationProtocol(t *testing.T) {
 	if protocol.ContextLayersPath == "" || len(protocol.ReadOrder) == 0 || len(protocol.RequiredArtifacts) == 0 {
 		t.Fatalf("expected continuation protocol to carry explicit file contract, got %+v", protocol)
 	}
-	if protocol.CloseoutSkeletonPath == "" {
-		t.Fatalf("expected continuation protocol to carry closeout skeleton path, got %+v", protocol)
+	if protocol.CloseoutSkeletonPath == "" || protocol.ResumeSessionID != "sess-1" || protocol.TaskStatus != "running" || protocol.ArtifactDir == "" {
+		t.Fatalf("expected continuation protocol to carry status summary, got %+v", protocol)
+	}
+	if len(protocol.EntryChecklist) == 0 || len(protocol.ControlPlaneGuards) == 0 {
+		t.Fatalf("expected continuation protocol to carry resume checklist and guardrails, got %+v", protocol)
 	}
 }

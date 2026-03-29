@@ -123,10 +123,27 @@ type TodoSummary struct {
 
 type RuntimeState struct {
 	state.Metadata
-	Status       string `json:"status"`
-	ActiveTaskID string `json:"activeTaskId,omitempty"`
-	LastRunAt    string `json:"lastRunAt,omitempty"`
-	LastError    string `json:"lastError,omitempty"`
+	Status                    string   `json:"status"`
+	ActiveTaskID              string   `json:"activeTaskId,omitempty"`
+	ActiveTaskFamily          string   `json:"activeTaskFamily,omitempty"`
+	ActiveSOPID               string   `json:"activeSopId,omitempty"`
+	ActiveThreadKey           string   `json:"activeThreadKey,omitempty"`
+	CurrentDispatchID         string   `json:"currentDispatchId,omitempty"`
+	CurrentExecutionSliceID   string   `json:"currentExecutionSliceId,omitempty"`
+	CurrentResumeSessionID    string   `json:"currentResumeSessionId,omitempty"`
+	CurrentTakeoverPath       string   `json:"currentTakeoverPath,omitempty"`
+	CurrentContextLayersPath  string   `json:"currentContextLayersPath,omitempty"`
+	CurrentTaskGraphPath      string   `json:"currentTaskGraphPath,omitempty"`
+	CurrentVerifySkeletonPath string   `json:"currentVerifySkeletonPath,omitempty"`
+	CurrentCloseoutPath       string   `json:"currentCloseoutPath,omitempty"`
+	CurrentHandoffPath        string   `json:"currentHandoffPath,omitempty"`
+	CurrentArtifactDir        string   `json:"currentArtifactDir,omitempty"`
+	CurrentWorktreePath       string   `json:"currentWorktreePath,omitempty"`
+	CurrentOwnedPaths         []string `json:"currentOwnedPaths,omitempty"`
+	LastVerificationStatus    string   `json:"lastVerificationStatus,omitempty"`
+	LastFollowUp              string   `json:"lastFollowUp,omitempty"`
+	LastRunAt                 string   `json:"lastRunAt,omitempty"`
+	LastError                 string   `json:"lastError,omitempty"`
 }
 
 type VerificationEntry struct {

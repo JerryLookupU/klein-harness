@@ -145,6 +145,8 @@ type ContinuationProtocol struct {
 	SOPID                 string     `json:"sopId,omitempty"`
 	ExecutionSliceID      string     `json:"executionSliceId,omitempty"`
 	ResumeStrategy        string     `json:"resumeStrategy,omitempty"`
+	ResumeSessionID       string     `json:"resumeSessionId,omitempty"`
+	TaskStatus            string     `json:"taskStatus,omitempty"`
 	ContextLayersPath     string     `json:"contextLayersPath,omitempty"`
 	RequestContextPath    string     `json:"requestContextPath,omitempty"`
 	RuntimeContextPath    string     `json:"runtimeContextPath,omitempty"`
@@ -158,10 +160,13 @@ type ContinuationProtocol struct {
 	HandoffContractPath   string     `json:"handoffContractPath,omitempty"`
 	HandoffPath           string     `json:"handoffPath,omitempty"`
 	SessionRegistryPath   string     `json:"sessionRegistryPath,omitempty"`
+	ArtifactDir           string     `json:"artifactDir,omitempty"`
 	ReadOrder             []string   `json:"readOrder,omitempty"`
 	RequiredArtifacts     []string   `json:"requiredArtifacts,omitempty"`
 	AllowedWriteGlobs     []string   `json:"allowedWriteGlobs,omitempty"`
 	ForbiddenWriteGlobs   []string   `json:"forbiddenWriteGlobs,omitempty"`
+	EntryChecklist        []string   `json:"entryChecklist,omitempty"`
+	ControlPlaneGuards    []string   `json:"controlPlaneGuards,omitempty"`
 }
 
 type HandoffSection struct {

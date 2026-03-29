@@ -70,17 +70,20 @@ func FinalizeTaskAfterVerification(root, taskID, dispatchID, verifyStatus, verif
 	}); err != nil {
 		return adapter.Task{}, err
 	}
+	task, err := adapter.LoadTask(root, taskID)
+	if err != nil {
+		return adapter.Task{}, err
+	}
 	if err := updateRuntime(paths.RuntimePath, func(current RuntimeState) RuntimeState {
 		current.Status = taskStatus
-		current.ActiveTaskID = taskID
+		current = bindRuntimeTask(current, task, adapter.TaskCWD(paths, task))
+		current.CurrentDispatchID = coalesce(dispatchID, current.CurrentDispatchID)
+		current.LastVerificationStatus = verifyStatus
+		current.LastFollowUp = coalesce(runtimeFollowUp, errorString(verifyErr))
 		current.LastRunAt = now
 		current.LastError = errorString(verifyErr)
 		return current
 	}); err != nil {
-		return adapter.Task{}, err
-	}
-	task, err := adapter.LoadTask(root, taskID)
-	if err != nil {
 		return adapter.Task{}, err
 	}
 	if err := refreshExecutionIndexes(paths, task, "", ""); err != nil {
@@ -92,6 +95,10 @@ func FinalizeTaskAfterVerification(root, taskID, dispatchID, verifyStatus, verif
 func RestartFromStage(root, taskID, stage, reason string) (adapter.Task, error) {
 	if strings.TrimSpace(stage) == "" {
 		stage = "queued"
+	}
+	paths, err := adapter.Resolve(root)
+	if err != nil {
+		return adapter.Task{}, err
 	}
 	task, err := adapter.LoadTask(root, taskID)
 	if err != nil {
@@ -113,10 +120,30 @@ func RestartFromStage(root, taskID, stage, reason string) (adapter.Task, error) 
 	}); err != nil {
 		return adapter.Task{}, err
 	}
-	return adapter.LoadTask(root, taskID)
+	updated, err := adapter.LoadTask(root, taskID)
+	if err != nil {
+		return adapter.Task{}, err
+	}
+	if err := updateRuntime(paths.RuntimePath, func(current RuntimeState) RuntimeState {
+		current.Status = "queued"
+		current = bindRuntimeTask(current, updated, adapter.TaskCWD(paths, updated))
+		current = clearRuntimeExecutionRefs(current)
+		current.LastVerificationStatus = ""
+		current.LastFollowUp = ""
+		current.LastRunAt = state.NowUTC()
+		current.LastError = ""
+		return current
+	}); err != nil {
+		return adapter.Task{}, err
+	}
+	return updated, nil
 }
 
 func StopTask(root, taskID, reason string) (adapter.Task, error) {
+	paths, err := adapter.Resolve(root)
+	if err != nil {
+		return adapter.Task{}, err
+	}
 	task, err := adapter.LoadTask(root, taskID)
 	if err != nil {
 		return adapter.Task{}, err
@@ -132,7 +159,21 @@ func StopTask(root, taskID, reason string) (adapter.Task, error) {
 	}); err != nil {
 		return adapter.Task{}, err
 	}
-	return adapter.LoadTask(root, taskID)
+	updated, err := adapter.LoadTask(root, taskID)
+	if err != nil {
+		return adapter.Task{}, err
+	}
+	if err := updateRuntime(paths.RuntimePath, func(current RuntimeState) RuntimeState {
+		current.Status = "blocked"
+		current = bindRuntimeTask(current, updated, adapter.TaskCWD(paths, updated))
+		current.LastFollowUp = "task.blocked"
+		current.LastRunAt = state.NowUTC()
+		current.LastError = coalesce(reason, "stopped by operator")
+		return current
+	}); err != nil {
+		return adapter.Task{}, err
+	}
+	return updated, nil
 }
 
 func ArchiveTask(root, taskID, reason string) (adapter.Task, error) {
@@ -201,7 +242,21 @@ func ArchiveTask(root, taskID, reason string) (adapter.Task, error) {
 	}); err != nil {
 		return adapter.Task{}, err
 	}
-	return adapter.LoadTask(root, taskID)
+	updated, err := adapter.LoadTask(root, taskID)
+	if err != nil {
+		return adapter.Task{}, err
+	}
+	if err := updateRuntime(paths.RuntimePath, func(current RuntimeState) RuntimeState {
+		current.Status = "archived"
+		current = bindRuntimeTask(current, updated, adapter.TaskCWD(paths, updated))
+		current.LastFollowUp = "task.archived"
+		current.LastRunAt = state.NowUTC()
+		current.LastError = ""
+		return current
+	}); err != nil {
+		return adapter.Task{}, err
+	}
+	return updated, nil
 }
 
 func taskTmuxSession(root string, task adapter.Task) string {

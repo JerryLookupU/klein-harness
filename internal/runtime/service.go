@@ -160,8 +160,12 @@ func Submit(request SubmitRequest) (SubmitResult, error) {
 	}
 	if err := updateRuntime(paths.RuntimePath, func(current RuntimeState) RuntimeState {
 		current.Status = firstString(binding.Task.Status, "queued")
-		current.ActiveTaskID = binding.Task.TaskID
+		current = bindRuntimeTask(current, binding.Task, adapter.TaskCWD(paths, binding.Task))
+		current = clearRuntimeExecutionRefs(current)
 		current.LastRunAt = now
+		current.LastVerificationStatus = binding.Task.VerificationStatus
+		current.LastFollowUp = ""
+		current.LastError = ""
 		return current
 	}); err != nil {
 		return SubmitResult{}, err
@@ -185,8 +189,10 @@ func RunOnce(root string, options RunOptions) (RunResult, error) {
 	if !ok {
 		if err := updateRuntime(paths.RuntimePath, func(current RuntimeState) RuntimeState {
 			current.Status = "idle"
-			current.ActiveTaskID = ""
+			current = clearRuntimeTaskRefs(current)
 			current.LastRunAt = state.NowUTC()
+			current.LastFollowUp = ""
+			current.LastVerificationStatus = ""
 			current.LastError = ""
 			return current
 		}); err != nil {
@@ -213,8 +219,11 @@ func RunOnce(root string, options RunOptions) (RunResult, error) {
 	}
 	if err := updateRuntime(paths.RuntimePath, func(current RuntimeState) RuntimeState {
 		current.Status = "running"
-		current.ActiveTaskID = task.TaskID
+		current = bindRuntimeTask(current, task, adapter.TaskCWD(paths, task))
+		current = clearRuntimeExecutionRefs(current)
 		current.LastRunAt = now
+		current.LastFollowUp = ""
+		current.LastVerificationStatus = ""
 		current.LastError = ""
 		return current
 	}); err != nil {
@@ -261,8 +270,12 @@ func RunOnce(root string, options RunOptions) (RunResult, error) {
 		}
 		if err := updateRuntime(paths.RuntimePath, func(current RuntimeState) RuntimeState {
 			current.Status = status
-			current.ActiveTaskID = task.TaskID
+			current = bindRuntimeTask(current, task, adapter.TaskCWD(paths, task))
+			current = clearRuntimeExecutionRefs(current)
 			current.LastRunAt = state.NowUTC()
+			current.LastFollowUp = ""
+			current.LastVerificationStatus = task.VerificationStatus
+			current.LastError = ""
 			return current
 		}); err != nil {
 			return RunResult{}, err
@@ -363,6 +376,18 @@ func RunOnce(root string, options RunOptions) (RunResult, error) {
 		current.VerificationSummary = ""
 		current.VerificationResultPath = ""
 		current.UpdatedAt = state.NowUTC()
+	}); err != nil {
+		return RunResult{}, err
+	}
+	if err := updateRuntime(paths.RuntimePath, func(current RuntimeState) RuntimeState {
+		current.Status = "running"
+		current = bindRuntimeTask(current, task, adapter.TaskCWD(paths, task))
+		current = bindRuntimeDispatch(current, task, ticket, bundle)
+		current.LastRunAt = state.NowUTC()
+		current.LastFollowUp = ""
+		current.LastVerificationStatus = ""
+		current.LastError = ""
+		return current
 	}); err != nil {
 		return RunResult{}, err
 	}
@@ -578,7 +603,10 @@ func RunOnce(root string, options RunOptions) (RunResult, error) {
 	}
 	if err := updateRuntime(paths.RuntimePath, func(current RuntimeState) RuntimeState {
 		current.Status = taskStatus
-		current.ActiveTaskID = task.TaskID
+		current = bindRuntimeTask(current, task, adapter.TaskCWD(paths, task))
+		current = bindRuntimeDispatch(current, task, ticket, bundle)
+		current.LastVerificationStatus = verifyStatus
+		current.LastFollowUp = coalesce(runtimeFollowUp, errorString(verifyErr))
 		current.LastRunAt = state.NowUTC()
 		current.LastError = errorString(verifyErr)
 		return current
@@ -659,7 +687,11 @@ func handleBurstStartupFailure(paths adapter.Paths, task adapter.Task, ticket di
 	}
 	if err := updateRuntime(paths.RuntimePath, func(current RuntimeState) RuntimeState {
 		current.Status = "blocked"
-		current.ActiveTaskID = task.TaskID
+		current = bindRuntimeTask(current, task, adapter.TaskCWD(paths, task))
+		current.CurrentDispatchID = ticket.DispatchID
+		current.CurrentResumeSessionID = ticket.ResumeSessionID
+		current.LastVerificationStatus = "blocked"
+		current.LastFollowUp = "task.blocked"
 		current.LastRunAt = now
 		current.LastError = summary
 		return current
@@ -1241,6 +1273,54 @@ func updateRuntime(path string, update func(RuntimeState) RuntimeState) error {
 	next := update(current)
 	_, err := state.WriteSnapshot(path, &next, "harness-runtime", current.Revision)
 	return err
+}
+
+func bindRuntimeTask(current RuntimeState, task adapter.Task, worktreePath string) RuntimeState {
+	current.ActiveTaskID = task.TaskID
+	current.ActiveTaskFamily = task.TaskFamily
+	current.ActiveSOPID = task.SOPID
+	current.ActiveThreadKey = task.ThreadKey
+	current.CurrentWorktreePath = worktreePath
+	current.CurrentOwnedPaths = uniqueNonEmpty(task.OwnedPaths)
+	return current
+}
+
+func bindRuntimeDispatch(current RuntimeState, task adapter.Task, ticket dispatch.Ticket, bundle worker.DispatchBundle) RuntimeState {
+	current.CurrentDispatchID = ticket.DispatchID
+	current.CurrentExecutionSliceID = bundle.ExecutionSliceID
+	current.CurrentResumeSessionID = firstString(ticket.ResumeSessionID, task.PreferredResumeSessionID)
+	current.CurrentTakeoverPath = bundle.TakeoverPath
+	current.CurrentContextLayersPath = bundle.ContextLayersPath
+	current.CurrentTaskGraphPath = bundle.TaskGraphPath
+	current.CurrentVerifySkeletonPath = bundle.VerifySkeletonPath
+	current.CurrentCloseoutPath = bundle.CloseoutPath
+	current.CurrentHandoffPath = bundle.HandoffPath
+	current.CurrentArtifactDir = bundle.ArtifactDir
+	return current
+}
+
+func clearRuntimeExecutionRefs(current RuntimeState) RuntimeState {
+	current.CurrentDispatchID = ""
+	current.CurrentExecutionSliceID = ""
+	current.CurrentResumeSessionID = ""
+	current.CurrentTakeoverPath = ""
+	current.CurrentContextLayersPath = ""
+	current.CurrentTaskGraphPath = ""
+	current.CurrentVerifySkeletonPath = ""
+	current.CurrentCloseoutPath = ""
+	current.CurrentHandoffPath = ""
+	current.CurrentArtifactDir = ""
+	return current
+}
+
+func clearRuntimeTaskRefs(current RuntimeState) RuntimeState {
+	current.ActiveTaskID = ""
+	current.ActiveTaskFamily = ""
+	current.ActiveSOPID = ""
+	current.ActiveThreadKey = ""
+	current.CurrentWorktreePath = ""
+	current.CurrentOwnedPaths = nil
+	return clearRuntimeExecutionRefs(current)
 }
 
 func updateVerification(path string, entry VerificationEntry) error {
