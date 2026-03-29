@@ -38,6 +38,7 @@ func TestBuildContextLayersAndContinuationProtocol(t *testing.T) {
 		HandoffPath:           "/repo/.harness/artifacts/T-1/handoff.md",
 		SessionRegistryPath:   "/repo/.harness/state/session-registry.json",
 		ArtifactDir:           "/repo/.harness/artifacts/T-1/dispatch-1",
+		PhaseArtifacts:        []PhaseArtifactRef{{PhaseID: "worker_execute", Layer: "slice_local", Role: "slice_context", Path: "/repo/.harness/artifacts/T-1/slice-context.json"}},
 		ReadOrder:             []string{"context-layers.json", "shared-flow-context.json", "slice-context.json"},
 		RequiredArtifacts:     []string{"context-layers.json", "verify-skeleton.json", "handoff.md"},
 		OwnedPaths:            []string{"internal/runtime/**"},
@@ -54,6 +55,9 @@ func TestBuildContextLayersAndContinuationProtocol(t *testing.T) {
 	}
 	if protocol.CloseoutSkeletonPath == "" || protocol.ResumeSessionID != "sess-1" || protocol.TaskStatus != "running" || protocol.ArtifactDir == "" || protocol.ExecutionCWD == "" || protocol.WorktreePath == "" || len(protocol.OwnedPaths) == 0 {
 		t.Fatalf("expected continuation protocol to carry status summary, got %+v", protocol)
+	}
+	if len(protocol.PhaseArtifacts) != 1 || protocol.PhaseArtifacts[0].Path == "" {
+		t.Fatalf("expected continuation protocol to carry phase artifacts, got %+v", protocol)
 	}
 	if len(protocol.EntryChecklist) == 0 || len(protocol.ControlPlaneGuards) == 0 {
 		t.Fatalf("expected continuation protocol to carry resume checklist and guardrails, got %+v", protocol)

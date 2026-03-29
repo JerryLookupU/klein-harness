@@ -108,6 +108,9 @@ func CompileWorkerPrompt(input PromptCompileInput) string {
 	if len(input.SharedFlowContext.CompiledPhases) > 0 {
 		lines = append(lines, fmt.Sprintf("- compiledPhases: %s", strings.Join(input.SharedFlowContext.CompiledPhases, ", ")))
 	}
+	for _, ref := range input.SharedFlowContext.PhaseArtifacts {
+		lines = append(lines, fmt.Sprintf("- phaseArtifact[%s/%s/%s]: %s", ref.PhaseID, ref.Layer, ref.Role, ref.Path))
+	}
 	if input.SharedFlowContext.DirectPass {
 		lines = append(lines, "- directPass: true")
 	}
@@ -125,6 +128,9 @@ func CompileWorkerPrompt(input PromptCompileInput) string {
 	}
 	if len(input.SliceContext.Inputs) > 0 {
 		lines = append(lines, fmt.Sprintf("- inputs: %s", strings.Join(input.SliceContext.Inputs, ", ")))
+	}
+	if len(input.SliceContext.PromptCompileInputs) > 0 {
+		lines = append(lines, fmt.Sprintf("- promptCompileInputs: %s", strings.Join(input.SliceContext.PromptCompileInputs, ", ")))
 	}
 	if input.SliceContext.SliceMode != "" {
 		lines = append(lines, fmt.Sprintf("- sliceMode: %s", input.SliceContext.SliceMode))

@@ -50,6 +50,14 @@
 - family 不再只是 submit metadata，而是 dispatch 前就进入 route policy
 - 对历史遗留或丢失 `taskFamily` / `sopId` 的 task，`RunOnce` 会先做一次 programmatic backfill，再进入 route
 
+runtime 内部现在明确区分：
+
+- `family classifier` 负责把 request / task 归到 task family
+- `sop registry` 负责把 family 映射到稳定 SOP
+- `worker.Prepare` 负责把已选 SOP 编译成 shared-flow / slice-local / verify / closeout / continuation 合同
+
+也就是说，程序先选轨道，再编译执行包，worker 不再临场决定整条 flow 的骨架。
+
 ## 上下文四层模型
 
 ### 1. Request Context
@@ -62,6 +70,7 @@
 
 - 整支 flow 共用的稳定上下文
 - shared spec / requirement spec / architecture contract / interface contract 引用
+- phase artifact refs
 - 边界摘要
 
 ### 3. Slice-Local Context
@@ -72,6 +81,8 @@
 - 禁止修改路径
 - 当前输出目标
 - 当前 done criteria
+- prompt compile inputs
+- resume artifacts
 
 ### 4. Runtime Control Context
 
@@ -90,6 +101,8 @@
 - `runtime-control-context.json` 会显式带上 `executionCwd`、`worktreePath`、`ownedPaths`，避免续跑或 verify 时误回到 git 根目录
 - runtime 另外会聚合生成 `context-layers.json`，让下一 session 按固定入口接棒
 - control/query 面会显式暴露这些 compiled context refs，便于 operator 追踪当前 slice 绑定的是哪一套合同
+- shared flow context 现在会额外带上 `phaseArtifacts[]`，显式记录“哪个 phase 由程序写出了哪个 artifact”
+- slice-local context 现在会额外带上 `promptCompileInputs[]`，显式记录 worker prompt 是由哪些编译结果拼出来的
 
 同时 runtime 真相账本 `runtime.json` 现在会显式跟踪：
 
@@ -133,6 +146,7 @@
 - `closeout-skeleton.json`
 - `handoff-contract.json`
 - `takeover-context.json`
+- `phaseArtifacts[]` 中 `extract_shared_spec / extract_variable_inputs / compile_task_graph / compile_worker_prompt / programmatic_verify / closeout` 的 artifact refs
 
 worker 负责：
 
@@ -165,6 +179,7 @@ worker 负责：
 - `closeout-skeleton.json`
 - `handoff-contract.json`
 - `takeover-context.json`
+- `phaseArtifacts[]` 中 `requirement_spec / architecture_contract / interface_contract / task_graph_compile / integration_verify / closeout` 的 artifact refs
 
 worker 负责：
 
@@ -180,6 +195,7 @@ prompt 从 `internal/worker/prompt_compiler.go` 生成，目标是：
 - 显式暴露 compiled context 文件
 - 缩短 prompt 中控制面叙事
 - 保持 verify / handoff / takeover 为第一等输入
+- 把 program-owned compiled phase artifacts 和 `promptCompileInputs` 直接渲染给 worker
 
 prompt 默认引导 worker 先看：
 
@@ -193,11 +209,24 @@ prompt 默认引导 worker 先看：
 
 而不是先扫大量 `.harness/state/*`。
 
+现在 prompt 中会额外显式出现：
+
+- `phaseArtifact[phase/layer/role] -> path`
+- `promptCompileInputs: ...`
+
+这样 worker 可以知道当前 handoff 不是自然语言临场发挥，而是程序从哪些 frozen contract 编出来的。
+
 ## Verify / Closeout 机制
 
 第一版增加程序化 `verify-skeleton.json`，避免 worker 输出空对象。
 同时增加程序化 `closeout-skeleton.json` 与 `handoff-contract.json`，把 closeout / handoff 必填段落和 resume read order 固定下来。
 `task-contract.json` 也会反向指向 `shared-flow-context.json`、`task-graph.json`、`slice-context.json`、`context-layers.json`、`verify-skeleton.json`、`closeout-skeleton.json`、`handoff-contract.json`、`takeover-context.json`，让 verify gate 能检查 continuation contract 是否完整。
+
+这一版里三类程序对象的责任边界更明确：
+
+- `verify-skeleton.json` 会显式带上 `requestContextPath`、`runtimeContextPath`、`taskContractPath`、`taskGraphPath`、`phaseArtifacts[]`
+- `closeout-skeleton.json` 会显式带上 `taskContractPath`、`taskGraphPath`、`phaseArtifacts[]`
+- `handoff-contract.json` 会显式带上 `taskContractPath`、`taskGraphPath`
 
 runtime 侧额外增加一条硬闸门：
 
@@ -248,8 +277,17 @@ runtime 侧额外增加一条硬闸门：
 - `ownedPaths`
 - `entryChecklist`
 - `controlPlaneGuards`
+- `phaseArtifacts`
 
 也就是说，下一次 session 拿到 takeover 合同后，不仅知道读哪些文件，也知道当前任务状态、恢复入口、验证应在哪个 cwd 执行，以及必须遵守的控制面边界。
+
+Multi-Session Continuation Protocol v1 在代码中的关键含义现在是：
+
+- 下一 session 先读 `context-layers.json`
+- 再读 `shared-flow-context.json` / `slice-context.json`
+- 再读 `task-contract.json` / `verify-skeleton.json` / `closeout-skeleton.json` / `handoff-contract.json`
+- `phaseArtifacts[]` 提供 phase -> artifact 的程序化目录，不需要重新翻 planning trace
+- `promptCompileInputs[]` 说明当前 worker prompt 的编译输入，不允许把 prompt 当成新的真相账本
 
 下一个 session 应只需读取这些固定文件，就能知道：
 
@@ -285,3 +323,20 @@ runtime 侧额外增加一条硬闸门：
 - repeated corpus 因为高度模式化，即使旧任务未显式标注 family，也允许优先匹配新 SOP
 
 这样可以先把机制落地，再逐步扩大覆盖面，而不是一次性推翻现有 runtime。
+
+## 距离 Fully Unattended Engine 还差什么
+
+当前这一版已经把 family classifier、SOP registry、四层上下文、worker prompt compile、verify skeleton、closeout skeleton、Multi-Session Continuation Protocol v1 接进 runtime 主链。
+但它仍然是第一版可运行骨架，还没有达到“长期无人值守、自主收敛”的终态。
+
+还差的关键项主要有：
+
+- `replan` 目前已经有入口和状态推进，但还缺少更强的程序化 re-slice / re-budget / retry policy，而不是只把任务送回 analysis loop
+- `verify` skeleton 已程序化，但 repeated corpus 的 programmatic verifier 仍主要是 skeleton + gate，对内容质量、来源覆盖、交叉校验的自动判定还不够强
+- `development_task` 已冻结 requirement / architecture / interface contract，但 integration verify 还没有形成更细粒度的 module-level verify compiler
+- continuation 协议已经 file-backed，但 session takeover 仍偏单棒接力，离多 worker 并发 slice 编排、冲突消解、自动 reclaim 还有距离
+- runtime 已记录当前 compiled contract refs，但 operator 面的聚合视图、resume diagnostics、blocked-cause drilldown 仍可以更强
+- direct-pass 已支持，但还缺少更严格的成本模型，来决定何时直通、何时拆 slice、何时只做 closeout
+- 当前仍保留 legacy execution task 推导的兼容层，后续需要继续收缩，让更多 family 走程序编译的 SOP 主链
+
+换句话说，这一版已经完成了“程序主导骨架、worker 只做单 slice”的核心转向；下一阶段要补的是更强的自动 replan、自动 verify、并发调度与 operator 诊断。

@@ -132,6 +132,9 @@ func Prepare(root string, ticket dispatch.Ticket, leaseID string) (DispatchBundl
 	sharedContextPath := filepath.Join(artifactDir, "shared-context.json")
 	sharedSpecPath := filepath.Join(artifactDir, "shared-spec.json")
 	variableInputsPath := filepath.Join(artifactDir, "variable-inputs.json")
+	requirementSpecPath := filepath.Join(artifactDir, "requirement-spec.json")
+	architectureContractPath := filepath.Join(artifactDir, "architecture-contract.json")
+	interfaceContractPath := filepath.Join(artifactDir, "interface-contract.json")
 	sharedFlowContextPath := filepath.Join(artifactDir, "shared-flow-context.json")
 	sliceContextPath := filepath.Join(artifactDir, "slice-context.json")
 	verifySkeletonPath := filepath.Join(artifactDir, "verify-skeleton.json")
@@ -224,6 +227,7 @@ func Prepare(root string, ticket dispatch.Ticket, leaseID string) (DispatchBundl
 		if err := writeJSON(sharedContextPath, acceptedPacket.SharedContext); err != nil {
 			return DispatchBundle{}, err
 		}
+		compiledFlow.SharedFlowContext.SharedContextPath = sharedContextPath
 	}
 	if compiledFlow.SharedSpec != nil {
 		if err := writeJSON(sharedSpecPath, compiledFlow.SharedSpec); err != nil {
@@ -238,21 +242,18 @@ func Prepare(root string, ticket dispatch.Ticket, leaseID string) (DispatchBundl
 		compiledFlow.SharedFlowContext.VariableRef = variableInputsPath
 	}
 	if compiledFlow.RequirementSpec != nil {
-		requirementSpecPath := filepath.Join(artifactDir, "requirement-spec.json")
 		if err := writeJSON(requirementSpecPath, compiledFlow.RequirementSpec); err != nil {
 			return DispatchBundle{}, err
 		}
 		compiledFlow.SharedFlowContext.ScopeRef = requirementSpecPath
 	}
 	if compiledFlow.ArchitectureContract != nil {
-		architectureContractPath := filepath.Join(artifactDir, "architecture-contract.json")
 		if err := writeJSON(architectureContractPath, compiledFlow.ArchitectureContract); err != nil {
 			return DispatchBundle{}, err
 		}
 		compiledFlow.SharedFlowContext.ModulePlanRef = architectureContractPath
 	}
 	if compiledFlow.InterfaceContract != nil {
-		interfaceContractPath := filepath.Join(artifactDir, "interface-contract.json")
 		if err := writeJSON(interfaceContractPath, compiledFlow.InterfaceContract); err != nil {
 			return DispatchBundle{}, err
 		}
@@ -276,6 +277,8 @@ func Prepare(root string, ticket dispatch.Ticket, leaseID string) (DispatchBundl
 	}
 	compiledFlow.SharedFlowContext.TaskGraphRef = taskGraphPath
 	compiledFlow.SharedFlowContext.VerifyPlanRef = verifySkeletonPath
+	phaseArtifacts := compiledPhaseArtifacts(compiledFlow, sharedSpecPath, variableInputsPath, requirementSpecPath, architectureContractPath, interfaceContractPath, taskGraphPath, contextLayersPath, sliceContextPath, taskContractPath, verifySkeletonPath, closeoutSkeletonPath, handoffContractPath, takeoverPath, promptPath)
+	compiledFlow.SharedFlowContext.PhaseArtifacts = phaseArtifacts
 	if err := writeJSON(sharedFlowContextPath, compiledFlow.SharedFlowContext); err != nil {
 		return DispatchBundle{}, err
 	}
@@ -314,7 +317,7 @@ func Prepare(root string, ticket dispatch.Ticket, leaseID string) (DispatchBundl
 		workerSpec["entityBatch"] = selectedTask.EntityBatch
 		workerSpec["outputTargets"] = selectedTask.OutputTargets
 	}
-	sliceContext := buildSliceLocalContext(task, taskContract, selectedTask, sharedFlowContextPath, taskGraphPath, selectedIndex, len(acceptedPacket.ExecutionTasks))
+	sliceContext := buildSliceLocalContext(task, taskContract, selectedTask, sharedFlowContextPath, taskGraphPath, taskContractPath, contextLayersPath, sliceContextPath, verifySkeletonPath, closeoutSkeletonPath, handoffContractPath, takeoverPath, selectedIndex, len(acceptedPacket.ExecutionTasks))
 	if err := writeJSON(sliceContextPath, sliceContext); err != nil {
 		return DispatchBundle{}, err
 	}
@@ -356,11 +359,11 @@ func Prepare(root string, ticket dispatch.Ticket, leaseID string) (DispatchBundl
 	if err := writeJSON(contextLayersPath, contextLayers); err != nil {
 		return DispatchBundle{}, err
 	}
-	verifySkeleton := buildVerifySkeleton(task, ticket, acceptedPacket, taskContract, compiledFlow, selectedTask, contextLayersPath, handoffContractPath, closeoutSkeletonPath)
+	verifySkeleton := buildVerifySkeleton(task, ticket, acceptedPacket, taskContract, compiledFlow, selectedTask, contextLayersPath, requestContextPath, runtimeContextPath, taskContractPath, taskGraphPath, handoffContractPath, closeoutSkeletonPath, phaseArtifacts)
 	if err := writeJSON(verifySkeletonPath, verifySkeleton); err != nil {
 		return DispatchBundle{}, err
 	}
-	closeoutSkeleton := buildCloseoutSkeleton(task, ticket, taskContract, compiledFlow, contextLayersPath, verifySkeletonPath, handoffContractPath)
+	closeoutSkeleton := buildCloseoutSkeleton(task, ticket, taskContract, compiledFlow, contextLayersPath, taskContractPath, taskGraphPath, verifySkeletonPath, handoffContractPath, phaseArtifacts)
 	if err := writeJSON(closeoutSkeletonPath, closeoutSkeleton); err != nil {
 		return DispatchBundle{}, err
 	}
@@ -371,6 +374,8 @@ func Prepare(root string, ticket dispatch.Ticket, leaseID string) (DispatchBundl
 		task.SOPID,
 		taskContract.ExecutionSliceID,
 		contextLayersPath,
+		taskContractPath,
+		taskGraphPath,
 		verifySkeletonPath,
 		closeoutSkeletonPath,
 		[]string{"worker-result.json", "verify.json", "handoff.md"},
@@ -413,6 +418,7 @@ func Prepare(root string, ticket dispatch.Ticket, leaseID string) (DispatchBundl
 		HandoffPath:           filepath.Join(artifactDir, "handoff.md"),
 		SessionRegistryPath:   paths.SessionRegistryPath,
 		ArtifactDir:           artifactDir,
+		PhaseArtifacts:        phaseArtifacts,
 		ReadOrder: []string{
 			contextLayersPath,
 			requestContextPath,
@@ -481,6 +487,7 @@ func Prepare(root string, ticket dispatch.Ticket, leaseID string) (DispatchBundl
 	workerSpec["handoffContractPath"] = handoffContractPath
 	workerSpec["takeoverPath"] = takeoverPath
 	workerSpec["sharedFlowContextPath"] = sharedFlowContextPath
+	workerSpec["phaseArtifacts"] = phaseArtifacts
 	workerSpec["contextLayers"] = contextLayers
 	workerSpec["requestContext"] = requestContext
 	workerSpec["runtimeControlContext"] = runtimeControlContext
@@ -1919,23 +1926,47 @@ func verificationStepTitles(commands []map[string]any) []string {
 	return steps
 }
 
-func buildSliceLocalContext(task adapter.Task, contract orchestration.TaskContract, selectedTask *orchestration.ExecutionTask, sharedFlowContextPath, taskGraphPath string, selectedIndex, totalSlices int) orchestration.SliceLocalContext {
+func buildSliceLocalContext(task adapter.Task, contract orchestration.TaskContract, selectedTask *orchestration.ExecutionTask, sharedFlowContextPath, taskGraphPath, taskContractPath, contextLayersPath, sliceContextPath, verifySkeletonPath, closeoutSkeletonPath, handoffContractPath, takeoverPath string, selectedIndex, totalSlices int) orchestration.SliceLocalContext {
 	sliceMode := "staged"
 	if totalSlices <= 1 || strings.EqualFold(coalesce(selectedTaskBatchLabel(selectedTask)), "direct-pass") {
 		sliceMode = "direct_pass"
 	}
 	slice := orchestration.SliceLocalContext{
-		ExecutionSliceID:    contract.ExecutionSliceID,
-		SliceMode:           sliceMode,
-		Sequence:            selectedIndex + 1,
-		TotalSlices:         totalSlices,
-		Title:               coalesce(task.Title, task.TaskID),
-		Summary:             contract.Objective,
-		AllowedWriteGlobs:   unique(contract.AllowedWriteGlobs),
-		ForbiddenWriteGlobs: unique(contract.ForbiddenWriteGlobs),
-		OutputTargets:       []string{},
-		DoneCriteria:        unique(contract.DoneCriteria),
-		Inputs:              uniqueNonEmpty(sharedFlowContextPath, taskGraphPath, contract.AcceptedPacketPath),
+		ExecutionSliceID:      contract.ExecutionSliceID,
+		SliceMode:             sliceMode,
+		Sequence:              selectedIndex + 1,
+		TotalSlices:           totalSlices,
+		Title:                 coalesce(task.Title, task.TaskID),
+		Summary:               contract.Objective,
+		AllowedWriteGlobs:     unique(contract.AllowedWriteGlobs),
+		ForbiddenWriteGlobs:   unique(contract.ForbiddenWriteGlobs),
+		OutputTargets:         []string{},
+		DoneCriteria:          unique(contract.DoneCriteria),
+		Inputs:                uniqueNonEmpty(sharedFlowContextPath, taskGraphPath, contract.AcceptedPacketPath),
+		SharedFlowContextPath: sharedFlowContextPath,
+		TaskGraphPath:         taskGraphPath,
+		TaskContractPath:      taskContractPath,
+		PromptCompileInputs: uniqueNonEmpty(
+			contextLayersPath,
+			sharedFlowContextPath,
+			sliceContextPath,
+			contract.AcceptedPacketPath,
+			taskGraphPath,
+			taskContractPath,
+			verifySkeletonPath,
+			closeoutSkeletonPath,
+			handoffContractPath,
+			takeoverPath,
+		),
+		ResumeArtifacts: uniqueNonEmpty(
+			contextLayersPath,
+			sharedFlowContextPath,
+			sliceContextPath,
+			verifySkeletonPath,
+			closeoutSkeletonPath,
+			handoffContractPath,
+			takeoverPath,
+		),
 	}
 	if selectedTask != nil {
 		if strings.TrimSpace(selectedTask.Title) != "" {
@@ -1961,7 +1992,7 @@ func splitTaskContexts(description string) []string {
 	return uniqueNonEmpty(lines...)
 }
 
-func buildVerifySkeleton(task adapter.Task, ticket dispatch.Ticket, packet orchestration.AcceptedPacket, contract orchestration.TaskContract, compiledFlow orchestration.CompiledFlow, selectedTask *orchestration.ExecutionTask, contextLayersPath, handoffContractPath, closeoutSkeletonPath string) orchestration.VerifySkeleton {
+func buildVerifySkeleton(task adapter.Task, ticket dispatch.Ticket, packet orchestration.AcceptedPacket, contract orchestration.TaskContract, compiledFlow orchestration.CompiledFlow, selectedTask *orchestration.ExecutionTask, contextLayersPath, requestContextPath, runtimeContextPath, taskContractPath, taskGraphPath, handoffContractPath, closeoutSkeletonPath string, phaseArtifacts []orchestration.PhaseArtifactRef) orchestration.VerifySkeleton {
 	worktreePath := coalesce(ticket.WorktreePath, task.Dispatch.WorktreePath, task.WorktreePath)
 	artifacts := []string{
 		"worker-result.json",
@@ -1999,7 +2030,7 @@ func buildVerifySkeleton(task adapter.Task, ticket dispatch.Ticket, packet orche
 			orchestration.VerifyCheck{ID: "handoff_contract", Kind: "handoff", Description: "handoff should explain completed work, risks, and next step."},
 		)
 	}
-	return orchestration.BuildVerifySkeleton(task.TaskID, ticket.DispatchID, compiledFlow.Family, packet.SOPID, contract.ExecutionSliceID, ticket.Cwd, worktreePath, contextLayersPath, handoffContractPath, closeoutSkeletonPath, []string{
+	return orchestration.BuildVerifySkeleton(task.TaskID, ticket.DispatchID, compiledFlow.Family, packet.SOPID, contract.ExecutionSliceID, ticket.Cwd, worktreePath, contextLayersPath, requestContextPath, runtimeContextPath, taskContractPath, taskGraphPath, handoffContractPath, closeoutSkeletonPath, phaseArtifacts, []string{
 		"context-layers.json",
 		"verify-skeleton.json",
 		"closeout-skeleton.json",
@@ -2011,7 +2042,7 @@ func buildVerifySkeleton(task adapter.Task, ticket dispatch.Ticket, packet orche
 	})
 }
 
-func buildCloseoutSkeleton(task adapter.Task, ticket dispatch.Ticket, contract orchestration.TaskContract, compiledFlow orchestration.CompiledFlow, contextLayersPath, verifySkeletonPath, handoffContractPath string) orchestration.CloseoutSkeleton {
+func buildCloseoutSkeleton(task adapter.Task, ticket dispatch.Ticket, contract orchestration.TaskContract, compiledFlow orchestration.CompiledFlow, contextLayersPath, taskContractPath, taskGraphPath, verifySkeletonPath, handoffContractPath string, phaseArtifacts []orchestration.PhaseArtifactRef) orchestration.CloseoutSkeleton {
 	sections := []orchestration.CloseoutSection{
 		{ID: "completed", Title: "Completed Work", Description: "Summarize the bounded slice outcome and touched outputs.", Required: true},
 		{ID: "verification", Title: "Verification Evidence", Description: "Point to recorded verify evidence and command outputs.", Required: true},
@@ -2041,8 +2072,11 @@ func buildCloseoutSkeleton(task adapter.Task, ticket dispatch.Ticket, contract o
 		task.SOPID,
 		contract.ExecutionSliceID,
 		contextLayersPath,
+		taskContractPath,
+		taskGraphPath,
 		verifySkeletonPath,
 		handoffContractPath,
+		phaseArtifacts,
 		[]string{"worker-result.json", "verify.json", "handoff.md"},
 		sections,
 		[]string{
@@ -2058,6 +2092,69 @@ func buildCloseoutSkeleton(task adapter.Task, ticket dispatch.Ticket, contract o
 			"treat verify-skeleton.json and closeout-skeleton.json as authoritative closeout inputs",
 		},
 	)
+}
+
+func compiledPhaseArtifacts(flow orchestration.CompiledFlow, sharedSpecPath, variableInputsPath, requirementSpecPath, architectureContractPath, interfaceContractPath, taskGraphPath, contextLayersPath, sliceContextPath, taskContractPath, verifySkeletonPath, closeoutSkeletonPath, handoffContractPath, takeoverPath, promptPath string) []orchestration.PhaseArtifactRef {
+	refs := []orchestration.PhaseArtifactRef{}
+	switch flow.SOPID {
+	case orchestration.SOPRepeatedEntityCorpusV1:
+		refs = append(refs,
+			phaseArtifact("extract_shared_spec", "shared_flow", "shared_contract", sharedSpecPath, "program freezes repeated corpus shared spec"),
+			phaseArtifact("extract_variable_inputs", "shared_flow", "variable_inputs", variableInputsPath, "program freezes entity roster and per-entity targets"),
+			phaseArtifact("compile_task_graph", "shared_flow", "task_graph", taskGraphPath, "program materializes corpus fanout and closeout slice"),
+			phaseArtifact("compile_worker_prompt", "slice_local", "slice_context", sliceContextPath, "worker prompt must start from slice-local contract"),
+			phaseArtifact("compile_worker_prompt", "runtime_control", "context_layers", contextLayersPath, "worker prompt consumes compiled four-layer context"),
+			phaseArtifact("compile_worker_prompt", "runtime_control", "task_contract", taskContractPath, "program owns slice done definition"),
+			phaseArtifact("compile_worker_prompt", "runtime_control", "takeover_contract", takeoverPath, "next session resumes from fixed continuation contract"),
+			phaseArtifact("compile_worker_prompt", "runtime_control", "worker_prompt", promptPath, "prompt is compiled from frozen flow and slice inputs"),
+			phaseArtifact("programmatic_verify", "runtime_control", "verify_skeleton", verifySkeletonPath, "program owns verify skeleton"),
+			phaseArtifact("closeout", "runtime_control", "closeout_skeleton", closeoutSkeletonPath, "program owns closeout skeleton"),
+			phaseArtifact("closeout", "runtime_control", "handoff_contract", handoffContractPath, "handoff sections stay file-backed"),
+		)
+	default:
+		refs = append(refs,
+			phaseArtifact("requirement_spec", "shared_flow", "requirement_spec", requirementSpecPath, "program freezes requirement scope and success criteria"),
+			phaseArtifact("architecture_contract", "shared_flow", "architecture_contract", architectureContractPath, "program freezes architecture boundaries"),
+			phaseArtifact("interface_contract", "shared_flow", "interface_contract", interfaceContractPath, "program freezes interface contract"),
+			phaseArtifact("task_graph_compile", "shared_flow", "task_graph", taskGraphPath, "program compiles development slices"),
+			phaseArtifact("worker_execute", "slice_local", "slice_context", sliceContextPath, "worker executes only the selected slice"),
+			phaseArtifact("worker_execute", "runtime_control", "task_contract", taskContractPath, "task contract remains the only done definition"),
+			phaseArtifact("worker_execute", "runtime_control", "context_layers", contextLayersPath, "worker prompt uses compiled four-layer context"),
+			phaseArtifact("worker_execute", "runtime_control", "worker_prompt", promptPath, "prompt is compiled from contracts rather than live planning"),
+			phaseArtifact("integration_verify", "runtime_control", "verify_skeleton", verifySkeletonPath, "program owns verify skeleton"),
+			phaseArtifact("closeout", "runtime_control", "closeout_skeleton", closeoutSkeletonPath, "program owns closeout skeleton"),
+			phaseArtifact("closeout", "runtime_control", "handoff_contract", handoffContractPath, "handoff stays file-backed"),
+			phaseArtifact("closeout", "runtime_control", "takeover_contract", takeoverPath, "next session resumes from fixed continuation contract"),
+		)
+	}
+	return compactPhaseArtifacts(refs)
+}
+
+func phaseArtifact(phaseID, layer, role, path string, notes ...string) orchestration.PhaseArtifactRef {
+	return orchestration.PhaseArtifactRef{
+		PhaseID: phaseID,
+		Layer:   layer,
+		Role:    role,
+		Path:    path,
+		Notes:   uniqueNonEmpty(notes...),
+	}
+}
+
+func compactPhaseArtifacts(refs []orchestration.PhaseArtifactRef) []orchestration.PhaseArtifactRef {
+	out := make([]orchestration.PhaseArtifactRef, 0, len(refs))
+	seen := map[string]bool{}
+	for _, ref := range refs {
+		if strings.TrimSpace(ref.Path) == "" {
+			continue
+		}
+		key := strings.Join([]string{ref.PhaseID, ref.Layer, ref.Role, ref.Path}, "|")
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, ref)
+	}
+	return out
 }
 
 func selectedTaskOutputTargets(task *orchestration.ExecutionTask) []string {

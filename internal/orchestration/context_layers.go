@@ -35,6 +35,7 @@ type ContinuationProtocolInput struct {
 	HandoffPath           string
 	SessionRegistryPath   string
 	ArtifactDir           string
+	PhaseArtifacts        []PhaseArtifactRef
 	ReadOrder             []string
 	RequiredArtifacts     []string
 	OwnedPaths            []string
@@ -72,6 +73,7 @@ func BuildContinuationProtocol(input ContinuationProtocolInput) ContinuationProt
 		HandoffPath:           input.HandoffPath,
 		SessionRegistryPath:   input.SessionRegistryPath,
 		ArtifactDir:           input.ArtifactDir,
+		PhaseArtifacts:        append([]PhaseArtifactRef(nil), input.PhaseArtifacts...),
 		ReadOrder:             uniqueStrings(input.ReadOrder),
 		RequiredArtifacts:     uniqueStrings(input.RequiredArtifacts),
 		OwnedPaths:            uniqueStrings(input.OwnedPaths),
@@ -82,7 +84,7 @@ func BuildContinuationProtocol(input ContinuationProtocolInput) ContinuationProt
 	}
 }
 
-func BuildVerifySkeleton(taskID, dispatchID string, family TaskFamily, sopID, executionSliceID, executionCWD, worktreePath, contextLayersPath, handoffContractPath, closeoutSkeletonPath string, programOwns, artifacts []string, checks []VerifyCheck, notes []string) VerifySkeleton {
+func BuildVerifySkeleton(taskID, dispatchID string, family TaskFamily, sopID, executionSliceID, executionCWD, worktreePath, contextLayersPath, requestContextPath, runtimeContextPath, taskContractPath, taskGraphPath, handoffContractPath, closeoutSkeletonPath string, phaseArtifacts []PhaseArtifactRef, programOwns, artifacts []string, checks []VerifyCheck, notes []string) VerifySkeleton {
 	return VerifySkeleton{
 		SchemaVersion:        "kh.verify-skeleton.v1",
 		TaskID:               taskID,
@@ -93,8 +95,13 @@ func BuildVerifySkeleton(taskID, dispatchID string, family TaskFamily, sopID, ex
 		ExecutionCWD:         executionCWD,
 		WorktreePath:         worktreePath,
 		ContextLayersPath:    contextLayersPath,
+		RequestContextPath:   requestContextPath,
+		RuntimeContextPath:   runtimeContextPath,
+		TaskContractPath:     taskContractPath,
+		TaskGraphPath:        taskGraphPath,
 		HandoffContract:      handoffContractPath,
 		CloseoutSkeletonPath: closeoutSkeletonPath,
+		PhaseArtifacts:       append([]PhaseArtifactRef(nil), phaseArtifacts...),
 		ProgramOwns:          uniqueStrings(programOwns),
 		RequiredArtifacts:    uniqueStrings(artifacts),
 		Checks:               checks,
@@ -102,7 +109,7 @@ func BuildVerifySkeleton(taskID, dispatchID string, family TaskFamily, sopID, ex
 	}
 }
 
-func BuildHandoffContract(taskID, dispatchID string, family TaskFamily, sopID, executionSliceID, contextLayersPath, verifySkeletonPath, closeoutSkeletonPath string, requiredArtifacts []string, sections []HandoffSection, resumeInstructions []string) HandoffContract {
+func BuildHandoffContract(taskID, dispatchID string, family TaskFamily, sopID, executionSliceID, contextLayersPath, taskContractPath, taskGraphPath, verifySkeletonPath, closeoutSkeletonPath string, requiredArtifacts []string, sections []HandoffSection, resumeInstructions []string) HandoffContract {
 	return HandoffContract{
 		SchemaVersion:        "kh.handoff-contract.v1",
 		TaskID:               taskID,
@@ -111,6 +118,8 @@ func BuildHandoffContract(taskID, dispatchID string, family TaskFamily, sopID, e
 		SOPID:                sopID,
 		ExecutionSliceID:     executionSliceID,
 		ContextLayersPath:    contextLayersPath,
+		TaskContractPath:     taskContractPath,
+		TaskGraphPath:        taskGraphPath,
 		VerifySkeletonPath:   verifySkeletonPath,
 		CloseoutSkeletonPath: closeoutSkeletonPath,
 		RequiredArtifacts:    uniqueStrings(requiredArtifacts),
@@ -119,7 +128,7 @@ func BuildHandoffContract(taskID, dispatchID string, family TaskFamily, sopID, e
 	}
 }
 
-func BuildCloseoutSkeleton(taskID, dispatchID string, family TaskFamily, sopID, executionSliceID, contextLayersPath, verifySkeletonPath, handoffContractPath string, requiredArtifacts []string, sections []CloseoutSection, workerMustProvide, programWillFinalize, resumeChecklist []string) CloseoutSkeleton {
+func BuildCloseoutSkeleton(taskID, dispatchID string, family TaskFamily, sopID, executionSliceID, contextLayersPath, taskContractPath, taskGraphPath, verifySkeletonPath, handoffContractPath string, phaseArtifacts []PhaseArtifactRef, requiredArtifacts []string, sections []CloseoutSection, workerMustProvide, programWillFinalize, resumeChecklist []string) CloseoutSkeleton {
 	return CloseoutSkeleton{
 		SchemaVersion:       "kh.closeout-skeleton.v1",
 		TaskID:              taskID,
@@ -128,9 +137,12 @@ func BuildCloseoutSkeleton(taskID, dispatchID string, family TaskFamily, sopID, 
 		SOPID:               sopID,
 		ExecutionSliceID:    executionSliceID,
 		ContextLayersPath:   contextLayersPath,
+		TaskContractPath:    taskContractPath,
+		TaskGraphPath:       taskGraphPath,
 		VerifySkeletonPath:  verifySkeletonPath,
 		HandoffContractPath: handoffContractPath,
 		RequiredArtifacts:   uniqueStrings(requiredArtifacts),
+		PhaseArtifacts:      append([]PhaseArtifactRef(nil), phaseArtifacts...),
 		Sections:            append([]CloseoutSection(nil), sections...),
 		WorkerMustProvide:   uniqueStrings(workerMustProvide),
 		ProgramWillFinalize: uniqueStrings(programWillFinalize),

@@ -6,8 +6,10 @@ import (
 
 	"klein-harness/internal/adapter"
 	"klein-harness/internal/bootstrap"
+	"klein-harness/internal/dispatch"
 	"klein-harness/internal/route"
 	"klein-harness/internal/state"
+	"klein-harness/internal/worker"
 )
 
 func TestSubmitWritesIntakeThreadChangeAndTodoSummaries(t *testing.T) {
@@ -576,6 +578,53 @@ func TestEnsureTaskClassificationBackfillsLegacyTaskMetadata(t *testing.T) {
 	}
 	if routeInput.TaskFamily != "repair_or_resume" || routeInput.SOPID != "sop.development_task.v1" {
 		t.Fatalf("expected route input to carry backfilled classification, got %+v", routeInput)
+	}
+}
+
+func TestBindRuntimeDispatchTracksCompiledContractRefs(t *testing.T) {
+	task := adapter.Task{
+		TaskID:                   "T-401",
+		ThreadKey:                "thread-401",
+		TaskFamily:               "feature_system",
+		SOPID:                    "sop.development_task.v1",
+		PreferredResumeSessionID: "sess-fallback",
+		OwnedPaths:               []string{"internal/runtime/**"},
+	}
+	ticket := dispatch.Ticket{
+		DispatchID:      "dispatch-401",
+		ResumeSessionID: "sess-401",
+	}
+	bundle := worker.DispatchBundle{
+		ExecutionSliceID:   "T-401.slice.2",
+		TakeoverPath:       "/repo/.harness/artifacts/T-401/dispatch-401/takeover-context.json",
+		ContextLayersPath:  "/repo/.harness/artifacts/T-401/dispatch-401/context-layers.json",
+		TaskGraphPath:      "/repo/.harness/artifacts/T-401/dispatch-401/task-graph.json",
+		VerifySkeletonPath: "/repo/.harness/artifacts/T-401/dispatch-401/verify-skeleton.json",
+		CloseoutPath:       "/repo/.harness/artifacts/T-401/dispatch-401/closeout-skeleton.json",
+		HandoffPath:        "/repo/.harness/artifacts/T-401/dispatch-401/handoff.md",
+		ArtifactDir:        "/repo/.harness/artifacts/T-401/dispatch-401",
+	}
+
+	current := bindRuntimeTask(RuntimeState{}, task, "/repo/.worktrees/T-401")
+	current = bindRuntimeDispatch(current, task, ticket, bundle)
+
+	if current.ActiveTaskID != "T-401" || current.ActiveTaskFamily != "feature_system" || current.ActiveSOPID != "sop.development_task.v1" {
+		t.Fatalf("expected runtime state to retain active task classification, got %+v", current)
+	}
+	if current.CurrentDispatchID != ticket.DispatchID || current.CurrentExecutionSliceID != bundle.ExecutionSliceID || current.CurrentResumeSessionID != "sess-401" {
+		t.Fatalf("expected runtime state to retain dispatch binding, got %+v", current)
+	}
+	if current.CurrentTakeoverPath != bundle.TakeoverPath || current.CurrentContextLayersPath != bundle.ContextLayersPath || current.CurrentTaskGraphPath != bundle.TaskGraphPath {
+		t.Fatalf("expected runtime state to carry continuation contract refs, got %+v", current)
+	}
+	if current.CurrentVerifySkeletonPath != bundle.VerifySkeletonPath || current.CurrentCloseoutPath != bundle.CloseoutPath || current.CurrentHandoffPath != bundle.HandoffPath {
+		t.Fatalf("expected runtime state to carry verify/closeout refs, got %+v", current)
+	}
+	if current.CurrentArtifactDir != bundle.ArtifactDir {
+		t.Fatalf("expected runtime state to carry artifact dir, got %+v", current)
+	}
+	if cleared := clearRuntimeExecutionRefs(current); cleared.CurrentDispatchID != "" || cleared.CurrentTakeoverPath != "" || cleared.CurrentArtifactDir != "" {
+		t.Fatalf("expected runtime execution refs to be clearable, got %+v", cleared)
 	}
 }
 

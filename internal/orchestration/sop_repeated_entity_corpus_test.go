@@ -32,6 +32,24 @@ func TestCompileRepeatedEntityCorpus(t *testing.T) {
 	if !ok || len(vars.Entities) != 3 {
 		t.Fatalf("expected three roster entries, got %#v", flow.VariableInputs)
 	}
+	if flow.Family != TaskFamilyRepeatedEntityCorpus || flow.SOPID != SOPRepeatedEntityCorpusV1 {
+		t.Fatalf("expected repeated corpus family+sop, got %+v", flow)
+	}
+	if flow.SharedTaskGroupContext == nil {
+		t.Fatalf("expected shared task-group context to be compiled")
+	}
+	if flow.SharedTaskGroupContext.EntitySelection.TargetCount != 3 || len(flow.SharedTaskGroupContext.EntitySelection.Entities) != 3 {
+		t.Fatalf("expected shared task-group entity selection to be frozen, got %+v", flow.SharedTaskGroupContext)
+	}
+	if len(flow.SharedFlowContext.CompiledPhases) != 6 {
+		t.Fatalf("expected repeated corpus phases to be compiled, got %+v", flow.SharedFlowContext.CompiledPhases)
+	}
+	if flow.SharedFlowContext.DirectPass {
+		t.Fatalf("expected multi-entity corpus to stay staged, got %+v", flow.SharedFlowContext)
+	}
+	if !containsRepeatedCorpusValue(flow.SharedFlowContext.BoundarySummary, "程序负责冻结 shared spec 和 variable inputs") {
+		t.Fatalf("expected shared-flow boundary summary to preserve program-owned shared spec, got %+v", flow.SharedFlowContext.BoundarySummary)
+	}
 	if len(flow.ExecutionTasks) != 4 {
 		t.Fatalf("expected three entity slices plus closeout, got %+v", flow.ExecutionTasks)
 	}
@@ -57,4 +75,13 @@ func TestCompileRepeatedEntityCorpusSingleEntityUsesDirectPass(t *testing.T) {
 	if flow.ExecutionTasks[0].BatchLabel != "direct-pass" {
 		t.Fatalf("expected direct-pass batch label, got %+v", flow.ExecutionTasks[0])
 	}
+}
+
+func containsRepeatedCorpusValue(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }

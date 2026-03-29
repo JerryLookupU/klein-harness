@@ -297,6 +297,11 @@ func TestPrepareWritesDispatchTicketWorkerSpecAndPrompt(t *testing.T) {
 		VerifySkeletonPath    string   `json:"verifySkeletonPath"`
 		CloseoutSkeletonPath  string   `json:"closeoutSkeletonPath"`
 		HandoffContractPath   string   `json:"handoffContractPath"`
+		PhaseArtifacts        []struct {
+			PhaseID string `json:"phaseId"`
+			Role    string `json:"role"`
+			Path    string `json:"path"`
+		} `json:"phaseArtifacts"`
 	}
 	workerSpecPayload, err := os.ReadFile(bundle.WorkerSpecPath)
 	if err != nil {
@@ -316,6 +321,9 @@ func TestPrepareWritesDispatchTicketWorkerSpecAndPrompt(t *testing.T) {
 	}
 	if workerSpec.Objective == "" || workerSpec.SelectedPlan == "" || len(workerSpec.AcceptanceMarkers) != 1 {
 		t.Fatalf("worker spec missing execution contract: %+v", workerSpec)
+	}
+	if len(workerSpec.PhaseArtifacts) < 4 {
+		t.Fatalf("expected worker spec to carry compiled phase artifacts, got %+v", workerSpec.PhaseArtifacts)
 	}
 	if workerSpec.ConstraintPath != ticket.ConstraintPath {
 		t.Fatalf("worker spec missing shared constraint path: %+v ticket=%+v", workerSpec, ticket)
@@ -492,28 +500,83 @@ func TestPrepareWritesDispatchTicketWorkerSpecAndPrompt(t *testing.T) {
 		t.Fatalf("unexpected context layers contract: %+v", contextLayers)
 	}
 
+	var sliceContext struct {
+		TaskContractPath    string   `json:"taskContractPath"`
+		TaskGraphPath       string   `json:"taskGraphPath"`
+		PromptCompileInputs []string `json:"promptCompileInputs"`
+		ResumeArtifacts     []string `json:"resumeArtifacts"`
+	}
+	if payload, err := os.ReadFile(workerSpec.SliceContextPath); err != nil {
+		t.Fatalf("read slice context: %v", err)
+	} else if err := json.Unmarshal(payload, &sliceContext); err != nil {
+		t.Fatalf("unmarshal slice context: %v", err)
+	}
+	if sliceContext.TaskContractPath == "" || sliceContext.TaskGraphPath == "" || len(sliceContext.PromptCompileInputs) == 0 || len(sliceContext.ResumeArtifacts) == 0 {
+		t.Fatalf("unexpected slice context contract: %+v", sliceContext)
+	}
+	for _, want := range []string{
+		workerSpec.ContextLayersPath,
+		workerSpec.TaskContractPath,
+		workerSpec.VerifySkeletonPath,
+		workerSpec.CloseoutSkeletonPath,
+		workerSpec.HandoffContractPath,
+	} {
+		if !containsSubstring(sliceContext.PromptCompileInputs, want) {
+			t.Fatalf("expected slice context prompt inputs to include %q, got %+v", want, sliceContext.PromptCompileInputs)
+		}
+	}
+
+	var verifySkeleton struct {
+		RequestContextPath string `json:"requestContextPath"`
+		RuntimeContextPath string `json:"runtimeContextPath"`
+		TaskContractPath   string `json:"taskContractPath"`
+		TaskGraphPath      string `json:"taskGraphPath"`
+		PhaseArtifacts     []struct {
+			PhaseID string `json:"phaseId"`
+			Path    string `json:"path"`
+		} `json:"phaseArtifacts"`
+	}
+	if payload, err := os.ReadFile(workerSpec.VerifySkeletonPath); err != nil {
+		t.Fatalf("read verify skeleton: %v", err)
+	} else if err := json.Unmarshal(payload, &verifySkeleton); err != nil {
+		t.Fatalf("unmarshal verify skeleton: %v", err)
+	}
+	if verifySkeleton.RequestContextPath == "" || verifySkeleton.RuntimeContextPath == "" || verifySkeleton.TaskContractPath == "" || verifySkeleton.TaskGraphPath == "" || len(verifySkeleton.PhaseArtifacts) == 0 {
+		t.Fatalf("unexpected verify skeleton contract: %+v", verifySkeleton)
+	}
+
 	var closeout struct {
 		SchemaVersion      string   `json:"schemaVersion"`
+		TaskContractPath   string   `json:"taskContractPath"`
+		TaskGraphPath      string   `json:"taskGraphPath"`
 		VerifySkeletonPath string   `json:"verifySkeletonPath"`
 		WorkerMustProvide  []string `json:"workerMustProvide"`
 		ResumeChecklist    []string `json:"resumeChecklist"`
+		PhaseArtifacts     []struct {
+			PhaseID string `json:"phaseId"`
+			Path    string `json:"path"`
+		} `json:"phaseArtifacts"`
 	}
 	if payload, err := os.ReadFile(workerSpec.CloseoutSkeletonPath); err != nil {
 		t.Fatalf("read closeout skeleton: %v", err)
 	} else if err := json.Unmarshal(payload, &closeout); err != nil {
 		t.Fatalf("unmarshal closeout skeleton: %v", err)
 	}
-	if closeout.SchemaVersion != "kh.closeout-skeleton.v1" || closeout.VerifySkeletonPath == "" || len(closeout.WorkerMustProvide) == 0 || !containsSubstring(closeout.ResumeChecklist, "executionCwd=") {
+	if closeout.SchemaVersion != "kh.closeout-skeleton.v1" || closeout.TaskContractPath == "" || closeout.TaskGraphPath == "" || closeout.VerifySkeletonPath == "" || len(closeout.WorkerMustProvide) == 0 || len(closeout.PhaseArtifacts) == 0 || !containsSubstring(closeout.ResumeChecklist, "executionCwd=") {
 		t.Fatalf("unexpected closeout skeleton contract: %+v", closeout)
 	}
 
 	var takeover struct {
-		SchemaVersion        string   `json:"schemaVersion"`
-		ResumeSessionID      string   `json:"resumeSessionId"`
-		TaskStatus           string   `json:"taskStatus"`
-		ExecutionCWD         string   `json:"executionCwd"`
-		WorktreePath         string   `json:"worktreePath"`
-		ArtifactDir          string   `json:"artifactDir"`
+		SchemaVersion   string `json:"schemaVersion"`
+		ResumeSessionID string `json:"resumeSessionId"`
+		TaskStatus      string `json:"taskStatus"`
+		ExecutionCWD    string `json:"executionCwd"`
+		WorktreePath    string `json:"worktreePath"`
+		ArtifactDir     string `json:"artifactDir"`
+		PhaseArtifacts  []struct {
+			PhaseID string `json:"phaseId"`
+			Path    string `json:"path"`
+		} `json:"phaseArtifacts"`
 		RequestContextPath   string   `json:"requestContextPath"`
 		RuntimeContextPath   string   `json:"runtimeContextPath"`
 		ContextLayersPath    string   `json:"contextLayersPath"`
@@ -538,6 +601,9 @@ func TestPrepareWritesDispatchTicketWorkerSpecAndPrompt(t *testing.T) {
 	}
 	if takeover.ResumeSessionID != "sess-1" || takeover.TaskStatus == "" || takeover.ExecutionCWD == "" || takeover.WorktreePath == "" || takeover.ArtifactDir != bundle.ArtifactDir || len(takeover.OwnedPaths) == 0 || len(takeover.EntryChecklist) == 0 || len(takeover.ControlPlaneGuards) == 0 {
 		t.Fatalf("expected continuation protocol to carry resume/session state, got %+v", takeover)
+	}
+	if len(takeover.PhaseArtifacts) == 0 {
+		t.Fatalf("expected continuation protocol to carry phase artifacts, got %+v", takeover)
 	}
 	if !containsSubstring(takeover.EntryChecklist, "executionCwd=") {
 		t.Fatalf("expected continuation checklist to preserve execution cwd, got %+v", takeover.EntryChecklist)
@@ -1208,4 +1274,54 @@ func TestSingleDocumentCorpusExpandsAfterFrozenRosterExists(t *testing.T) {
 	if executionTasks[3].OutputTargets[0] != "output/linguists.md" {
 		t.Fatalf("expected final closeout to target the final document, got %+v", executionTasks[3])
 	}
+}
+
+func TestCompiledPhaseArtifactsForRepeatedEntityCorpus(t *testing.T) {
+	refs := compiledPhaseArtifacts(
+		orchestration.CompiledFlow{SOPID: orchestration.SOPRepeatedEntityCorpusV1},
+		"/repo/.harness/artifacts/T-201/dispatch/shared-spec.json",
+		"/repo/.harness/artifacts/T-201/dispatch/variable-inputs.json",
+		"",
+		"",
+		"",
+		"/repo/.harness/artifacts/T-201/dispatch/task-graph.json",
+		"/repo/.harness/artifacts/T-201/dispatch/context-layers.json",
+		"/repo/.harness/artifacts/T-201/dispatch/slice-context.json",
+		"/repo/.harness/artifacts/T-201/dispatch/task-contract.json",
+		"/repo/.harness/artifacts/T-201/dispatch/verify-skeleton.json",
+		"/repo/.harness/artifacts/T-201/dispatch/closeout-skeleton.json",
+		"/repo/.harness/artifacts/T-201/dispatch/handoff-contract.json",
+		"/repo/.harness/artifacts/T-201/dispatch/takeover-context.json",
+		"/repo/.harness/state/runner-prompt-T-201.md",
+	)
+	for _, want := range []struct {
+		phase string
+		layer string
+		role  string
+	}{
+		{phase: "extract_shared_spec", layer: "shared_flow", role: "shared_contract"},
+		{phase: "extract_variable_inputs", layer: "shared_flow", role: "variable_inputs"},
+		{phase: "compile_task_graph", layer: "shared_flow", role: "task_graph"},
+		{phase: "compile_worker_prompt", layer: "slice_local", role: "slice_context"},
+		{phase: "compile_worker_prompt", layer: "runtime_control", role: "context_layers"},
+		{phase: "compile_worker_prompt", layer: "runtime_control", role: "task_contract"},
+		{phase: "compile_worker_prompt", layer: "runtime_control", role: "takeover_contract"},
+		{phase: "compile_worker_prompt", layer: "runtime_control", role: "worker_prompt"},
+		{phase: "programmatic_verify", layer: "runtime_control", role: "verify_skeleton"},
+		{phase: "closeout", layer: "runtime_control", role: "closeout_skeleton"},
+		{phase: "closeout", layer: "runtime_control", role: "handoff_contract"},
+	} {
+		if !hasPhaseArtifact(refs, want.phase, want.layer, want.role) {
+			t.Fatalf("expected repeated corpus phase artifacts to include %+v, got %+v", want, refs)
+		}
+	}
+}
+
+func hasPhaseArtifact(refs []orchestration.PhaseArtifactRef, phase, layer, role string) bool {
+	for _, ref := range refs {
+		if ref.PhaseID == phase && ref.Layer == layer && ref.Role == role && ref.Path != "" {
+			return true
+		}
+	}
+	return false
 }

@@ -54,6 +54,9 @@ func TestCompileWorkerPromptIncludesCompiledContracts(t *testing.T) {
 			ModulePlanRef:  "/repo/.harness/artifacts/T-1/dispatch/architecture-contract.json",
 			TaskGraphRef:   "/repo/.harness/artifacts/T-1/dispatch/task-graph.json",
 			CompiledPhases: []string{"requirement_spec", "task_graph_compile", "worker_execute"},
+			PhaseArtifacts: []orchestration.PhaseArtifactRef{
+				{PhaseID: "requirement_spec", Layer: "shared_flow", Role: "requirement_spec", Path: "/repo/.harness/artifacts/T-1/dispatch/requirement-spec.json"},
+			},
 		},
 		SliceContext: orchestration.SliceLocalContext{
 			ExecutionSliceID:    "T-1.slice.2",
@@ -65,6 +68,11 @@ func TestCompileWorkerPromptIncludesCompiledContracts(t *testing.T) {
 			AllowedWriteGlobs:   []string{"internal/**"},
 			ForbiddenWriteGlobs: []string{".harness/**"},
 			OutputTargets:       []string{"internal/orchestration/sop_registry.go"},
+			PromptCompileInputs: []string{
+				"/repo/.harness/artifacts/T-1/dispatch/context-layers.json",
+				"/repo/.harness/artifacts/T-1/dispatch/task-contract.json",
+				"/repo/.harness/artifacts/T-1/dispatch/verify-skeleton.json",
+			},
 		},
 	})
 	for _, want := range []string{
@@ -78,7 +86,9 @@ func TestCompileWorkerPromptIncludesCompiledContracts(t *testing.T) {
 		"closeout-skeleton.json",
 		"shared-flow-context.json",
 		"taskGraphRef: /repo/.harness/artifacts/T-1/dispatch/task-graph.json",
+		"phaseArtifact[requirement_spec/shared_flow/requirement_spec]: /repo/.harness/artifacts/T-1/dispatch/requirement-spec.json",
 		"slicePosition: 2/3",
+		"promptCompileInputs: /repo/.harness/artifacts/T-1/dispatch/context-layers.json, /repo/.harness/artifacts/T-1/dispatch/task-contract.json, /repo/.harness/artifacts/T-1/dispatch/verify-skeleton.json",
 		"verify-skeleton.json",
 		"Run edits and verification from executionCwd: /repo/.worktrees/T-1",
 		"Route policy guardrails:",
