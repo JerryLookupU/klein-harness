@@ -85,24 +85,27 @@ type SliceLocalContext struct {
 }
 
 type RuntimeControlContext struct {
-	TaskID               string `json:"taskId,omitempty"`
-	DispatchID           string `json:"dispatchId,omitempty"`
-	LeaseID              string `json:"leaseId,omitempty"`
-	ExecutionSliceID     string `json:"executionSliceId,omitempty"`
-	AcceptedPacketID     string `json:"acceptedPacketId,omitempty"`
-	ResumeSessionID      string `json:"resumeSessionId,omitempty"`
-	AcceptedPacketPath   string `json:"acceptedPacketPath,omitempty"`
-	TaskContractPath     string `json:"taskContractPath,omitempty"`
-	TaskGraphPath        string `json:"taskGraphPath,omitempty"`
-	ContextLayersPath    string `json:"contextLayersPath,omitempty"`
-	RequestContextPath   string `json:"requestContextPath,omitempty"`
-	RuntimeContextPath   string `json:"runtimeContextPath,omitempty"`
-	VerifySkeletonPath   string `json:"verifySkeletonPath,omitempty"`
-	CloseoutSkeletonPath string `json:"closeoutSkeletonPath,omitempty"`
-	HandoffContractPath  string `json:"handoffContractPath,omitempty"`
-	TakeoverPath         string `json:"takeoverPath,omitempty"`
-	SessionRegistryPath  string `json:"sessionRegistryPath,omitempty"`
-	ArtifactDir          string `json:"artifactDir,omitempty"`
+	TaskID               string   `json:"taskId,omitempty"`
+	DispatchID           string   `json:"dispatchId,omitempty"`
+	LeaseID              string   `json:"leaseId,omitempty"`
+	ExecutionSliceID     string   `json:"executionSliceId,omitempty"`
+	AcceptedPacketID     string   `json:"acceptedPacketId,omitempty"`
+	ResumeSessionID      string   `json:"resumeSessionId,omitempty"`
+	ExecutionCWD         string   `json:"executionCwd,omitempty"`
+	WorktreePath         string   `json:"worktreePath,omitempty"`
+	AcceptedPacketPath   string   `json:"acceptedPacketPath,omitempty"`
+	TaskContractPath     string   `json:"taskContractPath,omitempty"`
+	TaskGraphPath        string   `json:"taskGraphPath,omitempty"`
+	ContextLayersPath    string   `json:"contextLayersPath,omitempty"`
+	RequestContextPath   string   `json:"requestContextPath,omitempty"`
+	RuntimeContextPath   string   `json:"runtimeContextPath,omitempty"`
+	VerifySkeletonPath   string   `json:"verifySkeletonPath,omitempty"`
+	CloseoutSkeletonPath string   `json:"closeoutSkeletonPath,omitempty"`
+	HandoffContractPath  string   `json:"handoffContractPath,omitempty"`
+	TakeoverPath         string   `json:"takeoverPath,omitempty"`
+	SessionRegistryPath  string   `json:"sessionRegistryPath,omitempty"`
+	ArtifactDir          string   `json:"artifactDir,omitempty"`
+	OwnedPaths           []string `json:"ownedPaths,omitempty"`
 }
 
 type ContextLayers struct {
@@ -127,6 +130,8 @@ type VerifySkeleton struct {
 	TaskFamily           TaskFamily    `json:"taskFamily,omitempty"`
 	SOPID                string        `json:"sopId,omitempty"`
 	ExecutionSliceID     string        `json:"executionSliceId,omitempty"`
+	ExecutionCWD         string        `json:"executionCwd,omitempty"`
+	WorktreePath         string        `json:"worktreePath,omitempty"`
 	ContextLayersPath    string        `json:"contextLayersPath,omitempty"`
 	HandoffContract      string        `json:"handoffContractPath,omitempty"`
 	CloseoutSkeletonPath string        `json:"closeoutSkeletonPath,omitempty"`
@@ -147,6 +152,8 @@ type ContinuationProtocol struct {
 	ResumeStrategy        string     `json:"resumeStrategy,omitempty"`
 	ResumeSessionID       string     `json:"resumeSessionId,omitempty"`
 	TaskStatus            string     `json:"taskStatus,omitempty"`
+	ExecutionCWD          string     `json:"executionCwd,omitempty"`
+	WorktreePath          string     `json:"worktreePath,omitempty"`
 	ContextLayersPath     string     `json:"contextLayersPath,omitempty"`
 	RequestContextPath    string     `json:"requestContextPath,omitempty"`
 	RuntimeContextPath    string     `json:"runtimeContextPath,omitempty"`
@@ -163,6 +170,7 @@ type ContinuationProtocol struct {
 	ArtifactDir           string     `json:"artifactDir,omitempty"`
 	ReadOrder             []string   `json:"readOrder,omitempty"`
 	RequiredArtifacts     []string   `json:"requiredArtifacts,omitempty"`
+	OwnedPaths            []string   `json:"ownedPaths,omitempty"`
 	AllowedWriteGlobs     []string   `json:"allowedWriteGlobs,omitempty"`
 	ForbiddenWriteGlobs   []string   `json:"forbiddenWriteGlobs,omitempty"`
 	EntryChecklist        []string   `json:"entryChecklist,omitempty"`

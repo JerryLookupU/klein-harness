@@ -116,6 +116,7 @@ func Prepare(root string, ticket dispatch.Ticket, leaseID string) (DispatchBundl
 	feedbackSummary, _ := verify.LoadFeedbackSummary(root)
 	taskFeedback, hasTaskFeedback := verify.CurrentTaskFeedback(feedbackSummary, task.TaskID)
 	executionCwd := adapter.TaskCWD(paths, task)
+	worktreePath := coalesce(ticket.WorktreePath, task.Dispatch.WorktreePath, task.WorktreePath)
 	artifactDir := filepath.Join(paths.ArtifactsDir, task.TaskID, ticket.DispatchID)
 	if err := os.MkdirAll(artifactDir, 0o755); err != nil {
 		return DispatchBundle{}, err
@@ -329,6 +330,8 @@ func Prepare(root string, ticket dispatch.Ticket, leaseID string) (DispatchBundl
 		ExecutionSliceID:     taskContract.ExecutionSliceID,
 		AcceptedPacketID:     acceptedPacket.PacketID,
 		ResumeSessionID:      ticket.ResumeSessionID,
+		ExecutionCWD:         executionCwd,
+		WorktreePath:         worktreePath,
 		AcceptedPacketPath:   acceptedPacketPath,
 		TaskContractPath:     taskContractPath,
 		TaskGraphPath:        taskGraphPath,
@@ -341,6 +344,7 @@ func Prepare(root string, ticket dispatch.Ticket, leaseID string) (DispatchBundl
 		TakeoverPath:         takeoverPath,
 		SessionRegistryPath:  paths.SessionRegistryPath,
 		ArtifactDir:          artifactDir,
+		OwnedPaths:           unique(task.OwnedPaths),
 	}
 	contextLayers := orchestration.BuildContextLayers(requestContext, compiledFlow.SharedFlowContext, sliceContext, runtimeControlContext)
 	if err := writeJSON(requestContextPath, requestContext); err != nil {
@@ -393,6 +397,8 @@ func Prepare(root string, ticket dispatch.Ticket, leaseID string) (DispatchBundl
 		ResumeStrategy:        task.ResumeStrategy,
 		ResumeSessionID:       ticket.ResumeSessionID,
 		TaskStatus:            coalesce(task.Status, "prepared"),
+		ExecutionCWD:          executionCwd,
+		WorktreePath:          worktreePath,
 		ContextLayersPath:     contextLayersPath,
 		RequestContextPath:    requestContextPath,
 		RuntimeContextPath:    runtimeContextPath,
@@ -435,11 +441,13 @@ func Prepare(root string, ticket dispatch.Ticket, leaseID string) (DispatchBundl
 			paths.SessionRegistryPath,
 			filepath.Join(artifactDir, "handoff.md"),
 		},
+		OwnedPaths:          task.OwnedPaths,
 		AllowedWriteGlobs:   taskContract.AllowedWriteGlobs,
 		ForbiddenWriteGlobs: taskContract.ForbiddenWriteGlobs,
 		EntryChecklist: []string{
 			"Resume from context-layers.json before reading any global runtime ledger.",
 			"Re-open shared-flow-context.json and slice-context.json before editing code.",
+			fmt.Sprintf("Run edits and verification from executionCwd=%s.", executionCwd),
 			"Treat verify-skeleton.json, closeout-skeleton.json, and handoff-contract.json as the authoritative closeout contract.",
 		},
 		ControlPlaneGuards: []string{
@@ -1823,6 +1831,7 @@ func pendingOrchestrationExpansion(root string, task adapter.Task) (bool, string
 func buildTaskContract(root string, task adapter.Task, ticket dispatch.Ticket, packet orchestration.AcceptedPacket, hookPlan verify.HookPlan, acceptedPacketPath, sharedFlowContextPath, taskGraphPath, sliceContextPath, verifySkeletonPath string) orchestration.TaskContract {
 	selectedTask := selectExecutionTask(root, task.TaskID, task.PlanEpoch, packet.PacketID, packet.ExecutionTasks, ticket.Attempt)
 	executionSliceID := task.TaskID
+	worktreePath := coalesce(ticket.WorktreePath, task.Dispatch.WorktreePath, task.WorktreePath)
 	inScope := unique(task.OwnedPaths)
 	doneCriteria := uniqueNonEmpty(append([]string{"task-local slice implemented", "verification evidence recorded", "closeout artifacts written"}, hookPlan.AcceptanceMarkers...)...)
 	requiredEvidence := []string{"dispatch ticket", "worker-spec", "verify.json", "worker-result.json", "handoff.md"}
@@ -1874,6 +1883,8 @@ func buildTaskContract(root string, task adapter.Task, ticket dispatch.Ticket, p
 		ThreadKey:             task.ThreadKey,
 		PlanEpoch:             task.PlanEpoch,
 		ExecutionSliceID:      executionSliceID,
+		ExecutionCWD:          ticket.Cwd,
+		WorktreePath:          worktreePath,
 		Objective:             objective,
 		InScope:               inScope,
 		OutOfScope:            unique(append([]string{"global control-plane ledgers", "merge/archive/completion decisions"}, task.ForbiddenPaths...)),
@@ -1951,6 +1962,7 @@ func splitTaskContexts(description string) []string {
 }
 
 func buildVerifySkeleton(task adapter.Task, ticket dispatch.Ticket, packet orchestration.AcceptedPacket, contract orchestration.TaskContract, compiledFlow orchestration.CompiledFlow, selectedTask *orchestration.ExecutionTask, contextLayersPath, handoffContractPath, closeoutSkeletonPath string) orchestration.VerifySkeleton {
+	worktreePath := coalesce(ticket.WorktreePath, task.Dispatch.WorktreePath, task.WorktreePath)
 	artifacts := []string{
 		"worker-result.json",
 		"verify.json",
@@ -1987,7 +1999,7 @@ func buildVerifySkeleton(task adapter.Task, ticket dispatch.Ticket, packet orche
 			orchestration.VerifyCheck{ID: "handoff_contract", Kind: "handoff", Description: "handoff should explain completed work, risks, and next step."},
 		)
 	}
-	return orchestration.BuildVerifySkeleton(task.TaskID, ticket.DispatchID, compiledFlow.Family, packet.SOPID, contract.ExecutionSliceID, contextLayersPath, handoffContractPath, closeoutSkeletonPath, []string{
+	return orchestration.BuildVerifySkeleton(task.TaskID, ticket.DispatchID, compiledFlow.Family, packet.SOPID, contract.ExecutionSliceID, ticket.Cwd, worktreePath, contextLayersPath, handoffContractPath, closeoutSkeletonPath, []string{
 		"context-layers.json",
 		"verify-skeleton.json",
 		"closeout-skeleton.json",
@@ -1995,6 +2007,7 @@ func buildVerifySkeleton(task adapter.Task, ticket dispatch.Ticket, packet orche
 	}, artifacts, checks, []string{
 		"Program owns verify skeleton shape; model should only add evidence and risk notes.",
 		"Empty verify.json is invalid.",
+		fmt.Sprintf("Verification commands should run from executionCwd=%s.", ticket.Cwd),
 	})
 }
 
@@ -2041,6 +2054,7 @@ func buildCloseoutSkeleton(task adapter.Task, ticket dispatch.Ticket, contract o
 		[]string{
 			"resume from context-layers.json before reading any global ledger",
 			"re-open shared-flow-context.json and slice-context.json before editing code",
+			fmt.Sprintf("re-run verification from executionCwd=%s", contract.ExecutionCWD),
 			"treat verify-skeleton.json and closeout-skeleton.json as authoritative closeout inputs",
 		},
 	)

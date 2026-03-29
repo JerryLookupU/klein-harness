@@ -477,6 +477,8 @@ func TestPrepareWritesDispatchTicketWorkerSpecAndPrompt(t *testing.T) {
 			ExecutionSliceID string `json:"executionSliceId"`
 		} `json:"sliceLocal"`
 		RuntimeControl struct {
+			ExecutionCWD         string `json:"executionCwd"`
+			WorktreePath         string `json:"worktreePath"`
 			TaskGraphPath        string `json:"taskGraphPath"`
 			CloseoutSkeletonPath string `json:"closeoutSkeletonPath"`
 		} `json:"runtimeControl"`
@@ -486,7 +488,7 @@ func TestPrepareWritesDispatchTicketWorkerSpecAndPrompt(t *testing.T) {
 	} else if err := json.Unmarshal(payload, &contextLayers); err != nil {
 		t.Fatalf("unmarshal context layers: %v", err)
 	}
-	if contextLayers.SchemaVersion != "kh.context-layers.v1" || contextLayers.Request.Goal == "" || contextLayers.SliceLocal.ExecutionSliceID == "" || contextLayers.RuntimeControl.TaskGraphPath == "" || contextLayers.RuntimeControl.CloseoutSkeletonPath == "" {
+	if contextLayers.SchemaVersion != "kh.context-layers.v1" || contextLayers.Request.Goal == "" || contextLayers.SliceLocal.ExecutionSliceID == "" || contextLayers.RuntimeControl.ExecutionCWD == "" || contextLayers.RuntimeControl.WorktreePath == "" || contextLayers.RuntimeControl.TaskGraphPath == "" || contextLayers.RuntimeControl.CloseoutSkeletonPath == "" {
 		t.Fatalf("unexpected context layers contract: %+v", contextLayers)
 	}
 
@@ -494,13 +496,14 @@ func TestPrepareWritesDispatchTicketWorkerSpecAndPrompt(t *testing.T) {
 		SchemaVersion      string   `json:"schemaVersion"`
 		VerifySkeletonPath string   `json:"verifySkeletonPath"`
 		WorkerMustProvide  []string `json:"workerMustProvide"`
+		ResumeChecklist    []string `json:"resumeChecklist"`
 	}
 	if payload, err := os.ReadFile(workerSpec.CloseoutSkeletonPath); err != nil {
 		t.Fatalf("read closeout skeleton: %v", err)
 	} else if err := json.Unmarshal(payload, &closeout); err != nil {
 		t.Fatalf("unmarshal closeout skeleton: %v", err)
 	}
-	if closeout.SchemaVersion != "kh.closeout-skeleton.v1" || closeout.VerifySkeletonPath == "" || len(closeout.WorkerMustProvide) == 0 {
+	if closeout.SchemaVersion != "kh.closeout-skeleton.v1" || closeout.VerifySkeletonPath == "" || len(closeout.WorkerMustProvide) == 0 || !containsSubstring(closeout.ResumeChecklist, "executionCwd=") {
 		t.Fatalf("unexpected closeout skeleton contract: %+v", closeout)
 	}
 
@@ -508,6 +511,8 @@ func TestPrepareWritesDispatchTicketWorkerSpecAndPrompt(t *testing.T) {
 		SchemaVersion        string   `json:"schemaVersion"`
 		ResumeSessionID      string   `json:"resumeSessionId"`
 		TaskStatus           string   `json:"taskStatus"`
+		ExecutionCWD         string   `json:"executionCwd"`
+		WorktreePath         string   `json:"worktreePath"`
 		ArtifactDir          string   `json:"artifactDir"`
 		RequestContextPath   string   `json:"requestContextPath"`
 		RuntimeContextPath   string   `json:"runtimeContextPath"`
@@ -518,6 +523,7 @@ func TestPrepareWritesDispatchTicketWorkerSpecAndPrompt(t *testing.T) {
 		HandoffContractPath  string   `json:"handoffContractPath"`
 		ReadOrder            []string `json:"readOrder"`
 		RequiredArtifacts    []string `json:"requiredArtifacts"`
+		OwnedPaths           []string `json:"ownedPaths"`
 		SessionRegistryPath  string   `json:"sessionRegistryPath"`
 		EntryChecklist       []string `json:"entryChecklist"`
 		ControlPlaneGuards   []string `json:"controlPlaneGuards"`
@@ -530,8 +536,11 @@ func TestPrepareWritesDispatchTicketWorkerSpecAndPrompt(t *testing.T) {
 	if takeover.SchemaVersion != "kh.multi-session-continuation.v1" || takeover.RequestContextPath == "" || takeover.RuntimeContextPath == "" || takeover.ContextLayersPath == "" || takeover.TaskContractPath == "" || takeover.TaskGraphPath == "" || takeover.CloseoutSkeletonPath == "" || takeover.HandoffContractPath == "" || takeover.SessionRegistryPath == "" || len(takeover.ReadOrder) == 0 || len(takeover.RequiredArtifacts) == 0 {
 		t.Fatalf("unexpected continuation protocol: %+v", takeover)
 	}
-	if takeover.ResumeSessionID != "sess-1" || takeover.TaskStatus == "" || takeover.ArtifactDir != bundle.ArtifactDir || len(takeover.EntryChecklist) == 0 || len(takeover.ControlPlaneGuards) == 0 {
+	if takeover.ResumeSessionID != "sess-1" || takeover.TaskStatus == "" || takeover.ExecutionCWD == "" || takeover.WorktreePath == "" || takeover.ArtifactDir != bundle.ArtifactDir || len(takeover.OwnedPaths) == 0 || len(takeover.EntryChecklist) == 0 || len(takeover.ControlPlaneGuards) == 0 {
 		t.Fatalf("expected continuation protocol to carry resume/session state, got %+v", takeover)
+	}
+	if !containsSubstring(takeover.EntryChecklist, "executionCwd=") {
+		t.Fatalf("expected continuation checklist to preserve execution cwd, got %+v", takeover.EntryChecklist)
 	}
 	for _, want := range []string{
 		workerSpec.ContextLayersPath,

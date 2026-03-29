@@ -87,6 +87,7 @@
 - slice-local context 由程序编译
 - runtime control context 主要给程序，不要求 worker 大量读取
 - 四层会同时落成 `request-context.json`、`shared-flow-context.json`、`slice-context.json`、`runtime-control-context.json`
+- `runtime-control-context.json` 会显式带上 `executionCwd`、`worktreePath`、`ownedPaths`，避免续跑或 verify 时误回到 git 根目录
 - runtime 另外会聚合生成 `context-layers.json`，让下一 session 按固定入口接棒
 - control/query 面会显式暴露这些 compiled context refs，便于 operator 追踪当前 slice 绑定的是哪一套合同
 
@@ -241,11 +242,14 @@ runtime 侧额外增加一条硬闸门：
 
 - `resumeSessionId`
 - `taskStatus`
+- `executionCwd`
+- `worktreePath`
 - `artifactDir`
+- `ownedPaths`
 - `entryChecklist`
 - `controlPlaneGuards`
 
-也就是说，下一次 session 拿到 takeover 合同后，不仅知道读哪些文件，也知道当前任务状态、恢复入口和必须遵守的控制面边界。
+也就是说，下一次 session 拿到 takeover 合同后，不仅知道读哪些文件，也知道当前任务状态、恢复入口、验证应在哪个 cwd 执行，以及必须遵守的控制面边界。
 
 下一个 session 应只需读取这些固定文件，就能知道：
 

@@ -127,6 +127,8 @@ type TaskContract struct {
 	ThreadKey             string                      `json:"threadKey"`
 	PlanEpoch             int                         `json:"planEpoch"`
 	ExecutionSliceID      string                      `json:"executionSliceId"`
+	ExecutionCWD          string                      `json:"executionCwd,omitempty"`
+	WorktreePath          string                      `json:"worktreePath,omitempty"`
 	Objective             string                      `json:"objective"`
 	InScope               []string                    `json:"inScope,omitempty"`
 	OutOfScope            []string                    `json:"outOfScope,omitempty"`

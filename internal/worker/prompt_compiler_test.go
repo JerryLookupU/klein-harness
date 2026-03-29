@@ -37,9 +37,11 @@ func TestCompileWorkerPromptIncludesCompiledContracts(t *testing.T) {
 			Summary:    "实现 development sop",
 		},
 		Ticket: dispatch.Ticket{
-			TaskID:      "T-1",
-			DispatchID:  "dispatch-T-1",
-			ReasonCodes: []string{"dispatch_ready", "policy_verify_evidence_required"},
+			TaskID:       "T-1",
+			DispatchID:   "dispatch-T-1",
+			Cwd:          "/repo/.worktrees/T-1",
+			WorktreePath: ".worktrees/T-1",
+			ReasonCodes:  []string{"dispatch_ready", "policy_verify_evidence_required"},
 		},
 		ExecutionLoop: orchestration.ExecutionLoopContract{
 			ActiveSkills: []string{"qiushi-execution"},
@@ -68,6 +70,8 @@ func TestCompileWorkerPromptIncludesCompiledContracts(t *testing.T) {
 	for _, want := range []string{
 		"taskFamily: development_task",
 		"sopId: sop.development_task.v1",
+		"executionCwd: /repo/.worktrees/T-1",
+		"worktreePath: .worktrees/T-1",
 		"context-layers.json",
 		"request-context.json",
 		"handoff-contract.json",
@@ -76,6 +80,7 @@ func TestCompileWorkerPromptIncludesCompiledContracts(t *testing.T) {
 		"taskGraphRef: /repo/.harness/artifacts/T-1/dispatch/task-graph.json",
 		"slicePosition: 2/3",
 		"verify-skeleton.json",
+		"Run edits and verification from executionCwd: /repo/.worktrees/T-1",
 		"Route policy guardrails:",
 		"Hookified verification flow:",
 	} {

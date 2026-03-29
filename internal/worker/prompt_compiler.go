@@ -42,6 +42,7 @@ type PromptCompileInput struct {
 }
 
 func CompileWorkerPrompt(input PromptCompileInput) string {
+	worktreePath := coalesce(input.Ticket.WorktreePath, input.Task.Dispatch.WorktreePath, input.Task.WorktreePath)
 	lines := []string{
 		"You are the execution agent for one compiled slice.",
 		"",
@@ -58,6 +59,8 @@ func CompileWorkerPrompt(input PromptCompileInput) string {
 		fmt.Sprintf("- taskFamily: %s", input.Task.TaskFamily),
 		fmt.Sprintf("- sopId: %s", input.Task.SOPID),
 		fmt.Sprintf("- executionSliceId: %s", input.SliceContext.ExecutionSliceID),
+		fmt.Sprintf("- executionCwd: %s", input.Ticket.Cwd),
+		fmt.Sprintf("- worktreePath: %s", worktreePath),
 		fmt.Sprintf("- title: %s", coalesce(input.SliceContext.Title, input.Task.Title, input.Task.TaskID)),
 		fmt.Sprintf("- summary: %s", coalesce(input.SliceContext.Summary, input.Task.Summary, input.Task.Title)),
 		fmt.Sprintf("- allowedWriteGlobs: %s", strings.Join(unique(input.SliceContext.AllowedWriteGlobs), ", ")),
@@ -179,6 +182,7 @@ func CompileWorkerPrompt(input PromptCompileInput) string {
 		"Verification and closeout:",
 		fmt.Sprintf("- Read verify skeleton: %s", input.VerifySkeletonPath),
 		fmt.Sprintf("- Read closeout skeleton: %s", input.CloseoutSkeletonPath),
+		fmt.Sprintf("- Run edits and verification from executionCwd: %s", input.Ticket.Cwd),
 		"- Record command evidence and output evidence in verify.json.",
 		fmt.Sprintf("- Before exit write: %s, %s, %s", filepath.Join(input.ArtifactDir, "worker-result.json"), filepath.Join(input.ArtifactDir, "verify.json"), filepath.Join(input.ArtifactDir, "handoff.md")),
 		"- Before exit, if any required closeout artifact is missing, stop editing and write the missing artifact first.",

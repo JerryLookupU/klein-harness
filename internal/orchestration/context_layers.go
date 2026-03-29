@@ -19,6 +19,8 @@ type ContinuationProtocolInput struct {
 	ResumeStrategy        string
 	ResumeSessionID       string
 	TaskStatus            string
+	ExecutionCWD          string
+	WorktreePath          string
 	ContextLayersPath     string
 	RequestContextPath    string
 	RuntimeContextPath    string
@@ -35,6 +37,7 @@ type ContinuationProtocolInput struct {
 	ArtifactDir           string
 	ReadOrder             []string
 	RequiredArtifacts     []string
+	OwnedPaths            []string
 	AllowedWriteGlobs     []string
 	ForbiddenWriteGlobs   []string
 	EntryChecklist        []string
@@ -53,6 +56,8 @@ func BuildContinuationProtocol(input ContinuationProtocolInput) ContinuationProt
 		ResumeStrategy:        input.ResumeStrategy,
 		ResumeSessionID:       input.ResumeSessionID,
 		TaskStatus:            input.TaskStatus,
+		ExecutionCWD:          input.ExecutionCWD,
+		WorktreePath:          input.WorktreePath,
 		ContextLayersPath:     input.ContextLayersPath,
 		RequestContextPath:    input.RequestContextPath,
 		RuntimeContextPath:    input.RuntimeContextPath,
@@ -69,6 +74,7 @@ func BuildContinuationProtocol(input ContinuationProtocolInput) ContinuationProt
 		ArtifactDir:           input.ArtifactDir,
 		ReadOrder:             uniqueStrings(input.ReadOrder),
 		RequiredArtifacts:     uniqueStrings(input.RequiredArtifacts),
+		OwnedPaths:            uniqueStrings(input.OwnedPaths),
 		AllowedWriteGlobs:     uniqueStrings(input.AllowedWriteGlobs),
 		ForbiddenWriteGlobs:   uniqueStrings(input.ForbiddenWriteGlobs),
 		EntryChecklist:        uniqueStrings(input.EntryChecklist),
@@ -76,7 +82,7 @@ func BuildContinuationProtocol(input ContinuationProtocolInput) ContinuationProt
 	}
 }
 
-func BuildVerifySkeleton(taskID, dispatchID string, family TaskFamily, sopID, executionSliceID, contextLayersPath, handoffContractPath, closeoutSkeletonPath string, programOwns, artifacts []string, checks []VerifyCheck, notes []string) VerifySkeleton {
+func BuildVerifySkeleton(taskID, dispatchID string, family TaskFamily, sopID, executionSliceID, executionCWD, worktreePath, contextLayersPath, handoffContractPath, closeoutSkeletonPath string, programOwns, artifacts []string, checks []VerifyCheck, notes []string) VerifySkeleton {
 	return VerifySkeleton{
 		SchemaVersion:        "kh.verify-skeleton.v1",
 		TaskID:               taskID,
@@ -84,6 +90,8 @@ func BuildVerifySkeleton(taskID, dispatchID string, family TaskFamily, sopID, ex
 		TaskFamily:           family,
 		SOPID:                sopID,
 		ExecutionSliceID:     executionSliceID,
+		ExecutionCWD:         executionCWD,
+		WorktreePath:         worktreePath,
 		ContextLayersPath:    contextLayersPath,
 		HandoffContract:      handoffContractPath,
 		CloseoutSkeletonPath: closeoutSkeletonPath,

@@ -7,9 +7,9 @@ func TestBuildContextLayersAndContinuationProtocol(t *testing.T) {
 		RequestContext{Goal: "Fix runtime", Kind: "bugfix", Contexts: []string{"logs/run.log"}},
 		SharedFlowContext{TaskFamily: TaskFamilyBugfixSmall, SOPID: SOPDevelopmentTaskV1, Summary: "shared"},
 		SliceLocalContext{ExecutionSliceID: "T-1.slice.1", SliceMode: "direct_pass", Sequence: 1, TotalSlices: 1},
-		RuntimeControlContext{TaskID: "T-1", DispatchID: "dispatch-1", ContextLayersPath: "/repo/.harness/artifacts/T-1/context-layers.json"},
+		RuntimeControlContext{TaskID: "T-1", DispatchID: "dispatch-1", ExecutionCWD: "/repo/.worktrees/T-1", WorktreePath: ".worktrees/T-1", OwnedPaths: []string{"internal/runtime/**"}, ContextLayersPath: "/repo/.harness/artifacts/T-1/context-layers.json"},
 	)
-	if contextLayers.SchemaVersion != "kh.context-layers.v1" || contextLayers.SliceLocal.SliceMode != "direct_pass" {
+	if contextLayers.SchemaVersion != "kh.context-layers.v1" || contextLayers.SliceLocal.SliceMode != "direct_pass" || contextLayers.RuntimeControl.ExecutionCWD == "" || contextLayers.RuntimeControl.WorktreePath == "" {
 		t.Fatalf("unexpected context layers: %+v", contextLayers)
 	}
 
@@ -22,6 +22,8 @@ func TestBuildContextLayersAndContinuationProtocol(t *testing.T) {
 		ResumeStrategy:        "resume",
 		ResumeSessionID:       "sess-1",
 		TaskStatus:            "running",
+		ExecutionCWD:          "/repo/.worktrees/T-1",
+		WorktreePath:          ".worktrees/T-1",
 		ContextLayersPath:     "/repo/.harness/artifacts/T-1/context-layers.json",
 		RequestContextPath:    "/repo/.harness/artifacts/T-1/request-context.json",
 		RuntimeContextPath:    "/repo/.harness/artifacts/T-1/runtime-control-context.json",
@@ -38,6 +40,7 @@ func TestBuildContextLayersAndContinuationProtocol(t *testing.T) {
 		ArtifactDir:           "/repo/.harness/artifacts/T-1/dispatch-1",
 		ReadOrder:             []string{"context-layers.json", "shared-flow-context.json", "slice-context.json"},
 		RequiredArtifacts:     []string{"context-layers.json", "verify-skeleton.json", "handoff.md"},
+		OwnedPaths:            []string{"internal/runtime/**"},
 		AllowedWriteGlobs:     []string{"internal/runtime/**"},
 		ForbiddenWriteGlobs:   []string{".harness/**"},
 		EntryChecklist:        []string{"resume from context-layers.json"},
@@ -49,7 +52,7 @@ func TestBuildContextLayersAndContinuationProtocol(t *testing.T) {
 	if protocol.ContextLayersPath == "" || len(protocol.ReadOrder) == 0 || len(protocol.RequiredArtifacts) == 0 {
 		t.Fatalf("expected continuation protocol to carry explicit file contract, got %+v", protocol)
 	}
-	if protocol.CloseoutSkeletonPath == "" || protocol.ResumeSessionID != "sess-1" || protocol.TaskStatus != "running" || protocol.ArtifactDir == "" {
+	if protocol.CloseoutSkeletonPath == "" || protocol.ResumeSessionID != "sess-1" || protocol.TaskStatus != "running" || protocol.ArtifactDir == "" || protocol.ExecutionCWD == "" || protocol.WorktreePath == "" || len(protocol.OwnedPaths) == 0 {
 		t.Fatalf("expected continuation protocol to carry status summary, got %+v", protocol)
 	}
 	if len(protocol.EntryChecklist) == 0 || len(protocol.ControlPlaneGuards) == 0 {

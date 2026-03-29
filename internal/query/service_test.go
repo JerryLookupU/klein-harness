@@ -103,7 +103,7 @@ func TestTaskLoadsCompiledContextAndContinuationContracts(t *testing.T) {
 		"request":        map[string]any{"goal": "Resume compiled contracts"},
 		"sharedFlow":     map[string]any{"taskFamily": "feature_system", "sopId": "sop.development_task.v1", "summary": "shared summary"},
 		"sliceLocal":     map[string]any{"executionSliceId": "T-contract.slice.1", "sliceMode": "direct_pass"},
-		"runtimeControl": map[string]any{"taskId": "T-contract", "dispatchId": "dispatch-contract"},
+		"runtimeControl": map[string]any{"taskId": "T-contract", "dispatchId": "dispatch-contract", "executionCwd": "/repo/.worktrees/T-contract", "worktreePath": ".worktrees/T-contract", "ownedPaths": []string{"internal/query/**"}},
 	}); err != nil {
 		t.Fatalf("write context layers: %v", err)
 	}
@@ -153,12 +153,15 @@ func TestTaskLoadsCompiledContextAndContinuationContracts(t *testing.T) {
 		"taskId":                "T-contract",
 		"dispatchId":            "dispatch-contract",
 		"executionSliceId":      "T-contract.slice.1",
+		"executionCwd":          "/repo/.worktrees/T-contract",
+		"worktreePath":          ".worktrees/T-contract",
 		"contextLayersPath":     contextLayersPath,
 		"sharedFlowContextPath": sharedFlowPath,
 		"sliceContextPath":      sliceContextPath,
 		"verifySkeletonPath":    verifySkeletonPath,
 		"closeoutSkeletonPath":  closeoutPath,
 		"handoffContractPath":   handoffPath,
+		"ownedPaths":            []string{"internal/query/**"},
 		"readOrder":             []string{contextLayersPath, sharedFlowPath, sliceContextPath},
 	}); err != nil {
 		t.Fatalf("write takeover contract: %v", err)
@@ -175,6 +178,8 @@ func TestTaskLoadsCompiledContextAndContinuationContracts(t *testing.T) {
 		ThreadKey:             "thread-contract",
 		PlanEpoch:             1,
 		ExecutionSliceID:      "T-contract.slice.1",
+		ExecutionCWD:          "/repo/.worktrees/T-contract",
+		WorktreePath:          ".worktrees/T-contract",
 		Objective:             "Resume compiled contracts",
 		InScope:               []string{"internal/query/**"},
 		DoneCriteria:          []string{"contracts remain traceable"},
@@ -219,6 +224,9 @@ func TestTaskLoadsCompiledContextAndContinuationContracts(t *testing.T) {
 	}
 	if view.Continuation == nil || view.Continuation.ContextLayersPath != contextLayersPath || view.Continuation.HandoffContractPath != handoffPath {
 		t.Fatalf("expected continuation protocol in task view: %+v", view.Continuation)
+	}
+	if view.ContextLayers.RuntimeControl.ExecutionCWD == "" || view.ContextLayers.RuntimeControl.WorktreePath == "" || view.Continuation.ExecutionCWD == "" || view.Continuation.WorktreePath == "" || len(view.Continuation.OwnedPaths) == 0 {
+		t.Fatalf("expected execution cwd/worktree continuity in task view: context=%+v continuation=%+v", view.ContextLayers, view.Continuation)
 	}
 }
 
