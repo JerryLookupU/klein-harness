@@ -265,6 +265,7 @@ func Prepare(root string, ticket dispatch.Ticket, leaseID string) (DispatchBundl
 		compiledFlow.Family,
 		task.SOPID,
 		compiledFlow.SharedFlowContext.DirectPass,
+		compiledFlow.TaskGraphCompile,
 		compiledFlow.SharedFlowContext.CompiledPhases,
 		compiledFlow.ExecutionTasks,
 		sharedFlowContextPath,
@@ -317,14 +318,20 @@ func Prepare(root string, ticket dispatch.Ticket, leaseID string) (DispatchBundl
 		workerSpec["entityBatch"] = selectedTask.EntityBatch
 		workerSpec["outputTargets"] = selectedTask.OutputTargets
 	}
-	sliceContext := buildSliceLocalContext(task, taskContract, selectedTask, sharedFlowContextPath, taskGraphPath, taskContractPath, contextLayersPath, sliceContextPath, verifySkeletonPath, closeoutSkeletonPath, handoffContractPath, takeoverPath, selectedIndex, len(acceptedPacket.ExecutionTasks))
+	sliceContext := buildSliceLocalContext(task, taskContract, selectedTask, requestContextPath, runtimeContextPath, sharedFlowContextPath, taskGraphPath, taskContractPath, contextLayersPath, sliceContextPath, verifySkeletonPath, closeoutSkeletonPath, handoffContractPath, takeoverPath, selectedIndex, len(acceptedPacket.ExecutionTasks))
 	if err := writeJSON(sliceContextPath, sliceContext); err != nil {
 		return DispatchBundle{}, err
 	}
 	requestContext := orchestration.RequestContext{
-		Goal:     coalesce(task.Summary, task.Title),
-		Kind:     task.Kind,
-		Contexts: splitTaskContexts(task.Description),
+		TaskID:     task.TaskID,
+		ThreadKey:  task.ThreadKey,
+		TaskFamily: compiledFlow.Family,
+		SOPID:      task.SOPID,
+		Goal:       coalesce(task.Summary, task.Title),
+		Summary:    strings.TrimSpace(coalesce(task.Description, task.Summary, task.Title)),
+		Kind:       task.Kind,
+		Contexts:   splitTaskContexts(task.Description),
+		OwnedPaths: unique(task.OwnedPaths),
 	}
 	runtimeControlContext := orchestration.RuntimeControlContext{
 		TaskID:               task.TaskID,
@@ -393,6 +400,20 @@ func Prepare(root string, ticket dispatch.Ticket, leaseID string) (DispatchBundl
 	if err := writeJSON(handoffContractPath, handoffContract); err != nil {
 		return DispatchBundle{}, err
 	}
+	fileContracts := buildContinuationFiles(
+		contextLayersPath,
+		requestContextPath,
+		runtimeContextPath,
+		sharedFlowContextPath,
+		sliceContextPath,
+		taskGraphPath,
+		taskContractPath,
+		verifySkeletonPath,
+		closeoutSkeletonPath,
+		handoffContractPath,
+		filepath.Join(artifactDir, "handoff.md"),
+		paths.SessionRegistryPath,
+	)
 	takeoverContract := orchestration.BuildContinuationProtocol(orchestration.ContinuationProtocolInput{
 		TaskID:                task.TaskID,
 		DispatchID:            ticket.DispatchID,
@@ -418,6 +439,7 @@ func Prepare(root string, ticket dispatch.Ticket, leaseID string) (DispatchBundl
 		HandoffPath:           filepath.Join(artifactDir, "handoff.md"),
 		SessionRegistryPath:   paths.SessionRegistryPath,
 		ArtifactDir:           artifactDir,
+		FileContracts:         fileContracts,
 		PhaseArtifacts:        phaseArtifacts,
 		ReadOrder: []string{
 			contextLayersPath,
@@ -1926,11 +1948,22 @@ func verificationStepTitles(commands []map[string]any) []string {
 	return steps
 }
 
-func buildSliceLocalContext(task adapter.Task, contract orchestration.TaskContract, selectedTask *orchestration.ExecutionTask, sharedFlowContextPath, taskGraphPath, taskContractPath, contextLayersPath, sliceContextPath, verifySkeletonPath, closeoutSkeletonPath, handoffContractPath, takeoverPath string, selectedIndex, totalSlices int) orchestration.SliceLocalContext {
+func buildSliceLocalContext(task adapter.Task, contract orchestration.TaskContract, selectedTask *orchestration.ExecutionTask, requestContextPath, runtimeContextPath, sharedFlowContextPath, taskGraphPath, taskContractPath, contextLayersPath, sliceContextPath, verifySkeletonPath, closeoutSkeletonPath, handoffContractPath, takeoverPath string, selectedIndex, totalSlices int) orchestration.SliceLocalContext {
 	sliceMode := "staged"
 	if totalSlices <= 1 || strings.EqualFold(coalesce(selectedTaskBatchLabel(selectedTask)), "direct-pass") {
 		sliceMode = "direct_pass"
 	}
+	promptReadOrder := uniqueNonEmpty(
+		contextLayersPath,
+		requestContextPath,
+		runtimeContextPath,
+		sharedFlowContextPath,
+		sliceContextPath,
+		verifySkeletonPath,
+		closeoutSkeletonPath,
+		handoffContractPath,
+		taskContractPath,
+	)
 	slice := orchestration.SliceLocalContext{
 		ExecutionSliceID:      contract.ExecutionSliceID,
 		SliceMode:             sliceMode,
@@ -1946,17 +1979,35 @@ func buildSliceLocalContext(task adapter.Task, contract orchestration.TaskContra
 		SharedFlowContextPath: sharedFlowContextPath,
 		TaskGraphPath:         taskGraphPath,
 		TaskContractPath:      taskContractPath,
-		PromptCompileInputs: uniqueNonEmpty(
-			contextLayersPath,
+		PromptCompileInputs: uniqueNonEmpty(append([]string{},
+			append(promptReadOrder,
+				contract.AcceptedPacketPath,
+				taskGraphPath,
+				takeoverPath,
+			)...,
+		)...),
+		PromptReadOrder: uniqueNonEmpty(promptReadOrder...),
+		PromptSharedInputs: uniqueNonEmpty(
 			sharedFlowContextPath,
-			sliceContextPath,
-			contract.AcceptedPacketPath,
 			taskGraphPath,
+			contract.AcceptedPacketPath,
+		),
+		PromptRuntimeInputs: uniqueNonEmpty(
+			contextLayersPath,
+			requestContextPath,
+			runtimeContextPath,
 			taskContractPath,
+			takeoverPath,
+		),
+		PromptCloseoutInputs: uniqueNonEmpty(
 			verifySkeletonPath,
 			closeoutSkeletonPath,
 			handoffContractPath,
-			takeoverPath,
+		),
+		PromptGuardrails: uniqueNonEmpty(
+			"Do not reopen planning trace or global .harness/state/* unless compiled contracts conflict.",
+			"Do not rewrite shared flow context or task graph during slice execution.",
+			"Treat verify/closeout/handoff contracts as authoritative closeout inputs for this slice.",
 		),
 		ResumeArtifacts: uniqueNonEmpty(
 			contextLayersPath,
@@ -1978,6 +2029,32 @@ func buildSliceLocalContext(task adapter.Task, contract orchestration.TaskContra
 		slice.OutputTargets = unique(selectedTask.OutputTargets)
 	}
 	return slice
+}
+
+func buildContinuationFiles(contextLayersPath, requestContextPath, runtimeContextPath, sharedFlowContextPath, sliceContextPath, taskGraphPath, taskContractPath, verifySkeletonPath, closeoutSkeletonPath, handoffContractPath, handoffPath, sessionRegistryPath string) []orchestration.ContinuationFile {
+	items := []orchestration.ContinuationFile{
+		{ID: "context_layers", Layer: "runtime_control", Role: "context_layers", Path: contextLayersPath, Required: true, ReadRank: 1, Notes: []string{"multi-session resume entrypoint"}},
+		{ID: "request_context", Layer: "request", Role: "request_context", Path: requestContextPath, Required: true, ReadRank: 2, Notes: []string{"frozen request goal, family, sop, and owned paths"}},
+		{ID: "runtime_control_context", Layer: "runtime_control", Role: "runtime_control_context", Path: runtimeContextPath, Required: true, ReadRank: 3, Notes: []string{"execution cwd, worktree, and runtime-owned refs"}},
+		{ID: "shared_flow_context", Layer: "shared_flow", Role: "shared_flow_context", Path: sharedFlowContextPath, Required: true, ReadRank: 4, Notes: []string{"program-frozen shared flow context"}},
+		{ID: "task_graph", Layer: "shared_flow", Role: "task_graph", Path: taskGraphPath, Required: true, ReadRank: 5, Notes: []string{"compiled slice graph"}},
+		{ID: "slice_context", Layer: "slice_local", Role: "slice_context", Path: sliceContextPath, Required: true, ReadRank: 6, Notes: []string{"current execution slice boundary"}},
+		{ID: "task_contract", Layer: "runtime_control", Role: "task_contract", Path: taskContractPath, Required: true, ReadRank: 7, Notes: []string{"authoritative done criteria and write scope"}},
+		{ID: "verify_skeleton", Layer: "runtime_control", Role: "verify_skeleton", Path: verifySkeletonPath, Required: true, ReadRank: 8, Notes: []string{"program-owned verify skeleton"}},
+		{ID: "closeout_skeleton", Layer: "runtime_control", Role: "closeout_skeleton", Path: closeoutSkeletonPath, Required: true, ReadRank: 9, Notes: []string{"program-owned closeout skeleton"}},
+		{ID: "handoff_contract", Layer: "runtime_control", Role: "handoff_contract", Path: handoffContractPath, Required: true, ReadRank: 10, Notes: []string{"worker handoff sections and resume rules"}},
+		{ID: "session_registry", Layer: "runtime_control", Role: "session_registry", Path: sessionRegistryPath, Required: true, ReadRank: 11, Notes: []string{"active session bindings and contention checks"}},
+		{ID: "handoff", Layer: "runtime_control", Role: "handoff", Path: handoffPath, Required: true, ReadRank: 12, Notes: []string{"latest worker-written session handoff"}},
+	}
+	out := make([]orchestration.ContinuationFile, 0, len(items))
+	for _, item := range items {
+		if strings.TrimSpace(item.Path) == "" {
+			continue
+		}
+		item.Notes = uniqueNonEmpty(item.Notes...)
+		out = append(out, item)
+	}
+	return out
 }
 
 func selectedTaskBatchLabel(task *orchestration.ExecutionTask) string {

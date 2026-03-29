@@ -47,6 +47,7 @@ func CompileDevelopmentTask(task adapter.Task) CompiledFlow {
 		RequirementSpec:      req,
 		ArchitectureContract: arch,
 		InterfaceContract:    iface,
+		TaskGraphCompile:     developmentTaskGraphCompileSpec(family, tasks),
 		ExecutionTasks:       tasks,
 		SharedFlowContext: SharedFlowContext{
 			TaskFamily:      family,
@@ -69,6 +70,34 @@ func CompileDevelopmentTask(task adapter.Task) CompiledFlow {
 			},
 		},
 	}
+}
+
+func developmentTaskGraphCompileSpec(family TaskFamily, tasks []ExecutionTask) TaskGraphCompileSpec {
+	spec := TaskGraphCompileSpec{
+		CompileMode:    "bounded_stage_compile",
+		ResumeProtocol: "kh.multi-session-continuation.v1",
+		ReplanTriggers: []string{
+			"verification_failed",
+			"compiled_contract_missing",
+			"scope_violation_detected",
+			"integration_verify_blocked",
+		},
+		ProgramOwnedNotes: []string{
+			"program freezes requirement, architecture, interface, and task graph contracts before execution",
+			"worker executes the selected development slice only",
+		},
+	}
+	switch {
+	case len(tasks) <= 1:
+		spec.CompileMode = "single_slice_direct_pass"
+		spec.DirectPassReason = "family_or_scope_allows_direct_pass"
+	case family == TaskFamilyFeatureModule || family == TaskFamilyFeatureSystem:
+		spec.CompileMode = "semantic_stage_compile"
+		spec.DirectPassReason = "semantic_multi_slice_required"
+	default:
+		spec.DirectPassReason = "bounded_stage_required"
+	}
+	return spec
 }
 
 func developmentFlowFamily(task adapter.Task) TaskFamily {

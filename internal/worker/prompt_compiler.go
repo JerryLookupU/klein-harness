@@ -43,6 +43,19 @@ type PromptCompileInput struct {
 
 func CompileWorkerPrompt(input PromptCompileInput) string {
 	worktreePath := coalesce(input.Ticket.WorktreePath, input.Task.Dispatch.WorktreePath, input.Task.WorktreePath)
+	readOrder := unique(input.SliceContext.PromptReadOrder)
+	if len(readOrder) == 0 {
+		readOrder = uniqueNonEmpty(
+			input.ContextLayersPath,
+			input.SharedContextPath,
+			input.SharedFlowPath,
+			input.SliceContextPath,
+			input.VerifySkeletonPath,
+			input.CloseoutSkeletonPath,
+			input.HandoffContractPath,
+			input.TaskContractPath,
+		)
+	}
 	lines := []string{
 		"You are the execution agent for one compiled slice.",
 		"",
@@ -70,14 +83,16 @@ func CompileWorkerPrompt(input PromptCompileInput) string {
 		"- If shared flow context is incomplete, report planning drift instead of freelancing.",
 		"",
 		"Read order:",
-		fmt.Sprintf("- %s", input.ContextLayersPath),
-		fmt.Sprintf("- %s", input.SharedContextPath),
-		fmt.Sprintf("- %s", input.SharedFlowPath),
-		fmt.Sprintf("- %s", input.SliceContextPath),
-		fmt.Sprintf("- %s", input.VerifySkeletonPath),
-		fmt.Sprintf("- %s", input.CloseoutSkeletonPath),
-		fmt.Sprintf("- %s", input.HandoffContractPath),
-		fmt.Sprintf("- %s", input.TaskContractPath),
+	}
+	for _, path := range readOrder {
+		lines = append(lines, fmt.Sprintf("- %s", path))
+	}
+	lines = append(lines,
+		"",
+		"Compiled prompt contract:",
+		fmt.Sprintf("- sharedInputs: %s", strings.Join(unique(input.SliceContext.PromptSharedInputs), ", ")),
+		fmt.Sprintf("- runtimeInputs: %s", strings.Join(unique(input.SliceContext.PromptRuntimeInputs), ", ")),
+		fmt.Sprintf("- closeoutInputs: %s", strings.Join(unique(input.SliceContext.PromptCloseoutInputs), ", ")),
 		"",
 		"Compiled context layers:",
 		fmt.Sprintf("- requestContextPath: %s", input.RequestContextPath),
@@ -86,7 +101,7 @@ func CompileWorkerPrompt(input PromptCompileInput) string {
 		"",
 		"Shared spec:",
 		fmt.Sprintf("- summary: %s", input.SharedFlowContext.Summary),
-	}
+	)
 	if input.SharedFlowContext.SharedSpecRef != "" {
 		lines = append(lines, fmt.Sprintf("- sharedSpecRef: %s", input.SharedFlowContext.SharedSpecRef))
 	}
@@ -131,6 +146,9 @@ func CompileWorkerPrompt(input PromptCompileInput) string {
 	}
 	if len(input.SliceContext.PromptCompileInputs) > 0 {
 		lines = append(lines, fmt.Sprintf("- promptCompileInputs: %s", strings.Join(input.SliceContext.PromptCompileInputs, ", ")))
+	}
+	if len(input.SliceContext.PromptGuardrails) > 0 {
+		lines = append(lines, fmt.Sprintf("- promptGuardrails: %s", strings.Join(input.SliceContext.PromptGuardrails, " | ")))
 	}
 	if input.SliceContext.SliceMode != "" {
 		lines = append(lines, fmt.Sprintf("- sliceMode: %s", input.SliceContext.SliceMode))

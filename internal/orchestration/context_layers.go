@@ -35,6 +35,7 @@ type ContinuationProtocolInput struct {
 	HandoffPath           string
 	SessionRegistryPath   string
 	ArtifactDir           string
+	FileContracts         []ContinuationFile
 	PhaseArtifacts        []PhaseArtifactRef
 	ReadOrder             []string
 	RequiredArtifacts     []string
@@ -73,6 +74,7 @@ func BuildContinuationProtocol(input ContinuationProtocolInput) ContinuationProt
 		HandoffPath:           input.HandoffPath,
 		SessionRegistryPath:   input.SessionRegistryPath,
 		ArtifactDir:           input.ArtifactDir,
+		FileContracts:         append([]ContinuationFile(nil), input.FileContracts...),
 		PhaseArtifacts:        append([]PhaseArtifactRef(nil), input.PhaseArtifacts...),
 		ReadOrder:             uniqueStrings(input.ReadOrder),
 		RequiredArtifacts:     uniqueStrings(input.RequiredArtifacts),
@@ -150,7 +152,7 @@ func BuildCloseoutSkeleton(taskID, dispatchID string, family TaskFamily, sopID, 
 	}
 }
 
-func BuildTaskGraph(taskID, dispatchID string, family TaskFamily, sopID string, directPass bool, phases []string, executionTasks []ExecutionTask, sharedFlowContextPath string, notes []string) TaskGraph {
+func BuildTaskGraph(taskID, dispatchID string, family TaskFamily, sopID string, directPass bool, compile TaskGraphCompileSpec, phases []string, executionTasks []ExecutionTask, sharedFlowContextPath string, notes []string) TaskGraph {
 	return TaskGraph{
 		SchemaVersion:         "kh.task-graph.v1",
 		TaskID:                taskID,
@@ -158,9 +160,14 @@ func BuildTaskGraph(taskID, dispatchID string, family TaskFamily, sopID string, 
 		TaskFamily:            family,
 		SOPID:                 sopID,
 		DirectPass:            directPass,
+		CompileMode:           compile.CompileMode,
+		DirectPassReason:      compile.DirectPassReason,
 		Phases:                uniqueStrings(phases),
 		ExecutionTasks:        append([]ExecutionTask(nil), executionTasks...),
 		SharedFlowContextPath: sharedFlowContextPath,
+		ResumeProtocol:        compile.ResumeProtocol,
+		ReplanTriggers:        uniqueStrings(compile.ReplanTriggers),
+		ProgramOwnedNotes:     uniqueStrings(compile.ProgramOwnedNotes),
 		Notes:                 uniqueStrings(notes),
 	}
 }

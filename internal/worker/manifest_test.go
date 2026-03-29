@@ -385,8 +385,8 @@ func TestPrepareWritesDispatchTicketWorkerSpecAndPrompt(t *testing.T) {
 	if !strings.Contains(promptText, workerSpec.ContextLayersPath) || !strings.Contains(promptText, workerSpec.HandoffContractPath) || !strings.Contains(promptText, workerSpec.CloseoutSkeletonPath) {
 		t.Fatalf("prompt missing compiled context refs: %s", promptText)
 	}
-	if !strings.Contains(promptText, workerSpec.SharedContextPath) {
-		t.Fatalf("prompt missing shared context path: %s", promptText)
+	if !strings.Contains(promptText, "Compiled prompt contract:") || !strings.Contains(promptText, workerSpec.SharedFlowContextPath) {
+		t.Fatalf("prompt missing compiled prompt contract refs: %s", promptText)
 	}
 	if !strings.Contains(promptText, ticket.ExecutionSliceID) {
 		t.Fatalf("prompt missing execution slice id: %s", promptText)
@@ -481,8 +481,14 @@ func TestPrepareWritesDispatchTicketWorkerSpecAndPrompt(t *testing.T) {
 	var contextLayers struct {
 		SchemaVersion string `json:"schemaVersion"`
 		Request       struct {
-			Goal string `json:"goal"`
-			Kind string `json:"kind"`
+			TaskID     string   `json:"taskId"`
+			ThreadKey  string   `json:"threadKey"`
+			TaskFamily string   `json:"taskFamily"`
+			SOPID      string   `json:"sopId"`
+			Goal       string   `json:"goal"`
+			Summary    string   `json:"summary"`
+			Kind       string   `json:"kind"`
+			OwnedPaths []string `json:"ownedPaths"`
 		} `json:"request"`
 		SliceLocal struct {
 			ExecutionSliceID string `json:"executionSliceId"`
@@ -499,26 +505,51 @@ func TestPrepareWritesDispatchTicketWorkerSpecAndPrompt(t *testing.T) {
 	} else if err := json.Unmarshal(payload, &contextLayers); err != nil {
 		t.Fatalf("unmarshal context layers: %v", err)
 	}
-	if contextLayers.SchemaVersion != "kh.context-layers.v1" || contextLayers.Request.Goal == "" || contextLayers.SliceLocal.ExecutionSliceID == "" || contextLayers.RuntimeControl.ExecutionCWD == "" || contextLayers.RuntimeControl.WorktreePath == "" || contextLayers.RuntimeControl.TaskGraphPath == "" || contextLayers.RuntimeControl.CloseoutSkeletonPath == "" {
+	if contextLayers.SchemaVersion != "kh.context-layers.v1" || contextLayers.Request.TaskID != "T-1" || contextLayers.Request.ThreadKey != "thread-1" || contextLayers.Request.TaskFamily != string(orchestration.TaskFamilyDevelopmentTask) || contextLayers.Request.SOPID != orchestration.SOPDevelopmentTaskV1 || contextLayers.Request.Goal == "" || contextLayers.Request.Summary == "" || len(contextLayers.Request.OwnedPaths) == 0 || contextLayers.SliceLocal.ExecutionSliceID == "" || contextLayers.RuntimeControl.ExecutionCWD == "" || contextLayers.RuntimeControl.WorktreePath == "" || contextLayers.RuntimeControl.TaskGraphPath == "" || contextLayers.RuntimeControl.CloseoutSkeletonPath == "" {
 		t.Fatalf("unexpected context layers contract: %+v", contextLayers)
 	}
 
+	var requestContext struct {
+		TaskID     string   `json:"taskId"`
+		ThreadKey  string   `json:"threadKey"`
+		TaskFamily string   `json:"taskFamily"`
+		SOPID      string   `json:"sopId"`
+		OwnedPaths []string `json:"ownedPaths"`
+		Goal       string   `json:"goal"`
+		Summary    string   `json:"summary"`
+	}
+	if payload, err := os.ReadFile(workerSpec.RequestContextPath); err != nil {
+		t.Fatalf("read request context: %v", err)
+	} else if err := json.Unmarshal(payload, &requestContext); err != nil {
+		t.Fatalf("unmarshal request context: %v", err)
+	}
+	if requestContext.TaskID != "T-1" || requestContext.ThreadKey != "thread-1" || requestContext.TaskFamily != string(orchestration.TaskFamilyDevelopmentTask) || requestContext.SOPID != orchestration.SOPDevelopmentTaskV1 || requestContext.Goal == "" || requestContext.Summary == "" || len(requestContext.OwnedPaths) == 0 {
+		t.Fatalf("unexpected request context contract: %+v", requestContext)
+	}
+
 	var sliceContext struct {
-		TaskContractPath    string   `json:"taskContractPath"`
-		TaskGraphPath       string   `json:"taskGraphPath"`
-		PromptCompileInputs []string `json:"promptCompileInputs"`
-		ResumeArtifacts     []string `json:"resumeArtifacts"`
+		TaskContractPath     string   `json:"taskContractPath"`
+		TaskGraphPath        string   `json:"taskGraphPath"`
+		PromptCompileInputs  []string `json:"promptCompileInputs"`
+		PromptReadOrder      []string `json:"promptReadOrder"`
+		PromptSharedInputs   []string `json:"promptSharedInputs"`
+		PromptRuntimeInputs  []string `json:"promptRuntimeInputs"`
+		PromptCloseoutInputs []string `json:"promptCloseoutInputs"`
+		PromptGuardrails     []string `json:"promptGuardrails"`
+		ResumeArtifacts      []string `json:"resumeArtifacts"`
 	}
 	if payload, err := os.ReadFile(workerSpec.SliceContextPath); err != nil {
 		t.Fatalf("read slice context: %v", err)
 	} else if err := json.Unmarshal(payload, &sliceContext); err != nil {
 		t.Fatalf("unmarshal slice context: %v", err)
 	}
-	if sliceContext.TaskContractPath == "" || sliceContext.TaskGraphPath == "" || len(sliceContext.PromptCompileInputs) == 0 || len(sliceContext.ResumeArtifacts) == 0 {
+	if sliceContext.TaskContractPath == "" || sliceContext.TaskGraphPath == "" || len(sliceContext.PromptCompileInputs) == 0 || len(sliceContext.PromptReadOrder) == 0 || len(sliceContext.PromptSharedInputs) == 0 || len(sliceContext.PromptRuntimeInputs) == 0 || len(sliceContext.PromptCloseoutInputs) == 0 || len(sliceContext.PromptGuardrails) == 0 || len(sliceContext.ResumeArtifacts) == 0 {
 		t.Fatalf("unexpected slice context contract: %+v", sliceContext)
 	}
 	for _, want := range []string{
 		workerSpec.ContextLayersPath,
+		workerSpec.RequestContextPath,
+		workerSpec.RuntimeContextPath,
 		workerSpec.TaskContractPath,
 		workerSpec.VerifySkeletonPath,
 		workerSpec.CloseoutSkeletonPath,
@@ -527,6 +558,23 @@ func TestPrepareWritesDispatchTicketWorkerSpecAndPrompt(t *testing.T) {
 		if !containsSubstring(sliceContext.PromptCompileInputs, want) {
 			t.Fatalf("expected slice context prompt inputs to include %q, got %+v", want, sliceContext.PromptCompileInputs)
 		}
+	}
+	for _, want := range []string{
+		workerSpec.ContextLayersPath,
+		workerSpec.RequestContextPath,
+		workerSpec.RuntimeContextPath,
+		workerSpec.SharedFlowContextPath,
+		workerSpec.VerifySkeletonPath,
+		workerSpec.CloseoutSkeletonPath,
+		workerSpec.HandoffContractPath,
+		workerSpec.TaskContractPath,
+	} {
+		if !containsSubstring(sliceContext.PromptReadOrder, want) {
+			t.Fatalf("expected slice context prompt read order to include %q, got %+v", want, sliceContext.PromptReadOrder)
+		}
+	}
+	if !containsSubstring(sliceContext.PromptGuardrails, "Do not reopen planning trace") {
+		t.Fatalf("expected slice context prompt guardrails to include planning-trace boundary, got %+v", sliceContext.PromptGuardrails)
 	}
 
 	var verifySkeleton struct {
@@ -546,6 +594,22 @@ func TestPrepareWritesDispatchTicketWorkerSpecAndPrompt(t *testing.T) {
 	}
 	if verifySkeleton.RequestContextPath == "" || verifySkeleton.RuntimeContextPath == "" || verifySkeleton.TaskContractPath == "" || verifySkeleton.TaskGraphPath == "" || len(verifySkeleton.PhaseArtifacts) == 0 {
 		t.Fatalf("unexpected verify skeleton contract: %+v", verifySkeleton)
+	}
+
+	var taskGraph struct {
+		SchemaVersion     string   `json:"schemaVersion"`
+		CompileMode       string   `json:"compileMode"`
+		ResumeProtocol    string   `json:"resumeProtocol"`
+		ReplanTriggers    []string `json:"replanTriggers"`
+		ProgramOwnedNotes []string `json:"programOwnedNotes"`
+	}
+	if payload, err := os.ReadFile(workerSpec.TaskGraphPath); err != nil {
+		t.Fatalf("read task graph: %v", err)
+	} else if err := json.Unmarshal(payload, &taskGraph); err != nil {
+		t.Fatalf("unmarshal task graph: %v", err)
+	}
+	if taskGraph.SchemaVersion != "kh.task-graph.v1" || taskGraph.CompileMode == "" || taskGraph.ResumeProtocol != "kh.multi-session-continuation.v1" || len(taskGraph.ReplanTriggers) == 0 || len(taskGraph.ProgramOwnedNotes) == 0 {
+		t.Fatalf("unexpected task graph skeleton: %+v", taskGraph)
 	}
 
 	var closeout struct {
@@ -593,6 +657,13 @@ func TestPrepareWritesDispatchTicketWorkerSpecAndPrompt(t *testing.T) {
 		SessionRegistryPath  string   `json:"sessionRegistryPath"`
 		EntryChecklist       []string `json:"entryChecklist"`
 		ControlPlaneGuards   []string `json:"controlPlaneGuards"`
+		FileContracts        []struct {
+			ID       string `json:"id"`
+			Role     string `json:"role"`
+			Path     string `json:"path"`
+			Required bool   `json:"required"`
+			ReadRank int    `json:"readRank"`
+		} `json:"fileContracts"`
 	}
 	if payload, err := os.ReadFile(filepath.Join(bundle.ArtifactDir, "takeover-context.json")); err != nil {
 		t.Fatalf("read takeover context: %v", err)
@@ -607,6 +678,9 @@ func TestPrepareWritesDispatchTicketWorkerSpecAndPrompt(t *testing.T) {
 	}
 	if len(takeover.PhaseArtifacts) == 0 {
 		t.Fatalf("expected continuation protocol to carry phase artifacts, got %+v", takeover)
+	}
+	if len(takeover.FileContracts) < 4 || takeover.FileContracts[0].Path == "" || !takeover.FileContracts[0].Required {
+		t.Fatalf("expected continuation protocol to carry explicit file contracts, got %+v", takeover)
 	}
 	if !containsSubstring(takeover.EntryChecklist, "executionCwd=") {
 		t.Fatalf("expected continuation checklist to preserve execution cwd, got %+v", takeover.EntryChecklist)

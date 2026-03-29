@@ -60,6 +60,21 @@ func resolveSOPDefinition(task adapter.Task) (SOPDefinition, bool) {
 	return candidates[0], true
 }
 
+func NormalizeTaskClassification(family TaskFamily, sopID string) (TaskFamily, string) {
+	if family == "" || family == TaskFamilyUnknown {
+		return TaskFamilyUnknown, strings.TrimSpace(sopID)
+	}
+	sopID = strings.TrimSpace(sopID)
+	if sopID != "" {
+		return family, sopID
+	}
+	candidates := DefaultSOPRegistry().LookupByFamily(canonicalSOPFamily(family))
+	if len(candidates) == 0 {
+		return family, ""
+	}
+	return family, candidates[0].ID
+}
+
 func ResolveTaskClassification(task adapter.Task) (TaskFamily, string) {
 	family := TaskFamily(strings.TrimSpace(task.TaskFamily))
 	sopID := strings.TrimSpace(task.SOPID)
@@ -72,6 +87,7 @@ func ResolveTaskClassification(task adapter.Task) (TaskFamily, string) {
 			sopID = inferredSOP
 		}
 	}
+	family, sopID = NormalizeTaskClassification(family, sopID)
 	resolvedTask := task
 	if family != "" {
 		resolvedTask.TaskFamily = string(family)
@@ -102,29 +118,32 @@ func MaterializeTaskClassification(task adapter.Task) adapter.Task {
 
 func ClassifyTaskFamily(kind, goal string, contexts []string) (TaskFamily, string) {
 	lower := strings.ToLower(strings.Join(append([]string{kind, goal}, contexts...), "\n"))
+	var family TaskFamily
+	var sopID string
 	switch {
 	case hasAny(lower, "review", "audit", "审查", "审计", "代码评审"):
-		return TaskFamilyReviewOrAudit, SOPDevelopmentTaskV1
+		family, sopID = TaskFamilyReviewOrAudit, SOPDevelopmentTaskV1
 	case hasAny(lower, "resume", "repair", "恢复", "重试", "断点", "继续执行"):
-		return TaskFamilyRepairOrResume, ""
+		family = TaskFamilyRepairOrResume
 	case looksLikeRepeatedEntityCorpus(lower):
-		return TaskFamilyRepeatedEntityCorpus, SOPRepeatedEntityCorpusV1
+		family, sopID = TaskFamilyRepeatedEntityCorpus, SOPRepeatedEntityCorpusV1
 	case looksLikeSingleArtifactGeneration(lower):
-		return TaskFamilySingleArtifact, SOPDevelopmentTaskV1
+		family, sopID = TaskFamilySingleArtifact, SOPDevelopmentTaskV1
 	case hasAny(lower, "integration", "third-party", "第三方", "支付", "oauth", "sso", "接入"):
-		return TaskFamilyIntegrationExternal, SOPDevelopmentTaskV1
+		family, sopID = TaskFamilyIntegrationExternal, SOPDevelopmentTaskV1
 	case hasAny(lower, "bug", "fix", "regression", "error", "failure", "报错", "修复"):
-		return TaskFamilyBugfixSmall, SOPDevelopmentTaskV1
+		family, sopID = TaskFamilyBugfixSmall, SOPDevelopmentTaskV1
 	case hasAny(lower, "system", "架构", "framework", "pipeline", "引擎", "flow", "runtime", "orchestrator", "harness", "编排", "调度"):
-		return TaskFamilyFeatureSystem, SOPDevelopmentTaskV1
+		family, sopID = TaskFamilyFeatureSystem, SOPDevelopmentTaskV1
 	case hasAny(lower, "module", "模块", "组件", "page", "页面", "dashboard", "view", "panel", "sidebar") &&
 		!hasAny(lower, "需求", "接口", "联调", "测试", "architecture", "contract", "workflow"):
-		return TaskFamilyFeatureModule, SOPDevelopmentTaskV1
+		family, sopID = TaskFamilyFeatureModule, SOPDevelopmentTaskV1
 	case hasAny(lower, "prd", "需求", "接口", "联调", "测试", "开发", "refactor", "重构", "实现", "新增", "添加"):
-		return TaskFamilyDevelopmentTask, SOPDevelopmentTaskV1
+		family, sopID = TaskFamilyDevelopmentTask, SOPDevelopmentTaskV1
 	default:
-		return TaskFamilyDevelopmentTask, SOPDevelopmentTaskV1
+		family, sopID = TaskFamilyDevelopmentTask, SOPDevelopmentTaskV1
 	}
+	return NormalizeTaskClassification(family, sopID)
 }
 
 func looksLikeRepeatedEntityCorpus(lower string) bool {

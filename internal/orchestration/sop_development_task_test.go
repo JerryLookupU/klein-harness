@@ -23,6 +23,9 @@ func TestCompileDevelopmentTaskBuildsPhaseSkeletonAndSemanticSlices(t *testing.T
 	if flow.RequirementSpec == nil || flow.ArchitectureContract == nil || flow.InterfaceContract == nil {
 		t.Fatalf("expected development contracts to be compiled, got %+v", flow)
 	}
+	if flow.TaskGraphCompile.CompileMode != "semantic_stage_compile" || flow.TaskGraphCompile.ResumeProtocol != "kh.multi-session-continuation.v1" || len(flow.TaskGraphCompile.ReplanTriggers) == 0 {
+		t.Fatalf("expected development task graph skeleton, got %+v", flow.TaskGraphCompile)
+	}
 	if flow.SharedFlowContext.DirectPass {
 		t.Fatalf("expected semantic development task graph, got %+v", flow.SharedFlowContext)
 	}
@@ -56,6 +59,9 @@ func TestCompileDevelopmentTaskBugfixUsesDirectPass(t *testing.T) {
 	})
 	if flow.Family != TaskFamilyBugfixSmall || !flow.SharedFlowContext.DirectPass {
 		t.Fatalf("expected bugfix flow to use direct pass, got %+v", flow)
+	}
+	if flow.TaskGraphCompile.CompileMode != "single_slice_direct_pass" || flow.TaskGraphCompile.DirectPassReason != "family_or_scope_allows_direct_pass" {
+		t.Fatalf("expected direct-pass development compile skeleton, got %+v", flow.TaskGraphCompile)
 	}
 	if len(flow.ExecutionTasks) != 1 || flow.ExecutionTasks[0].BatchLabel != "direct-pass" {
 		t.Fatalf("expected one direct-pass execution slice, got %+v", flow.ExecutionTasks)

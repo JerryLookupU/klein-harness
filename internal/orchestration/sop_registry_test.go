@@ -35,7 +35,7 @@ func TestClassifyTaskFamily(t *testing.T) {
 		{name: "development task", kind: "feature", goal: "实现需求分析、接口设计、模块开发和联调测试", family: TaskFamilyDevelopmentTask, sopID: SOPDevelopmentTaskV1},
 		{name: "integration external", goal: "接入 OAuth 第三方登录", family: TaskFamilyIntegrationExternal, sopID: SOPDevelopmentTaskV1},
 		{name: "review audit", goal: "审计当前 runtime route 与 verify 合同", family: TaskFamilyReviewOrAudit, sopID: SOPDevelopmentTaskV1},
-		{name: "repair resume", goal: "恢复上次中断的 session 并继续执行", family: TaskFamilyRepairOrResume},
+		{name: "repair resume", goal: "恢复上次中断的 session 并继续执行", family: TaskFamilyRepairOrResume, sopID: SOPDevelopmentTaskV1},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -44,6 +44,13 @@ func TestClassifyTaskFamily(t *testing.T) {
 				t.Fatalf("expected family=%s sop=%s, got family=%s sop=%s", tc.family, tc.sopID, family, sopID)
 			}
 		})
+	}
+}
+
+func TestNormalizeTaskClassificationUsesRegistryFallback(t *testing.T) {
+	family, sopID := NormalizeTaskClassification(TaskFamilyRepairOrResume, "")
+	if family != TaskFamilyRepairOrResume || sopID != SOPDevelopmentTaskV1 {
+		t.Fatalf("expected registry fallback for repair/resume, got family=%s sop=%s", family, sopID)
 	}
 }
 

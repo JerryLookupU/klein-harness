@@ -46,6 +46,7 @@ func CompileRepeatedEntityCorpus(root string, task adapter.Task) CompiledFlow {
 		SOPID:                  SOPRepeatedEntityCorpusV1,
 		SharedSpec:             shared,
 		VariableInputs:         vars,
+		TaskGraphCompile:       repeatedEntityTaskGraphCompileSpec(directPass),
 		ExecutionTasks:         tasks,
 		SharedTaskGroupContext: sharedCtx,
 		SharedFlowContext: SharedFlowContext{
@@ -57,6 +58,30 @@ func CompileRepeatedEntityCorpus(root string, task adapter.Task) CompiledFlow {
 			BoundarySummary: uniqueStrings(append(append([]string{"程序负责冻结 shared spec 和 variable inputs", "worker 只处理当前 entity slice 或 closeout slice"}, repeatedEntityBoundaryNotes(directPass)...), task.OwnedPaths...)),
 		},
 	}
+}
+
+func repeatedEntityTaskGraphCompileSpec(directPass bool) TaskGraphCompileSpec {
+	spec := TaskGraphCompileSpec{
+		CompileMode:    "entity_fanout_closeout",
+		ResumeProtocol: "kh.multi-session-continuation.v1",
+		ReplanTriggers: []string{
+			"shared_spec_drift",
+			"variable_inputs_mismatch",
+			"required_sections_missing",
+			"closeout_artifacts_missing",
+		},
+		ProgramOwnedNotes: []string{
+			"program freezes shared spec, variable inputs, and task graph before worker execution",
+			"worker executes one entity slice or the final closeout slice only",
+		},
+	}
+	if directPass {
+		spec.CompileMode = "single_slice_direct_pass"
+		spec.DirectPassReason = "single_entity_roster"
+		return spec
+	}
+	spec.DirectPassReason = "fanout_required_for_multi_entity_roster"
+	return spec
 }
 
 func ExtractRepeatedEntitySharedSpec(task adapter.Task) RepeatedEntitySharedSpec {

@@ -57,9 +57,15 @@ type SOPDefinition struct {
 }
 
 type RequestContext struct {
-	Goal     string   `json:"goal,omitempty"`
-	Kind     string   `json:"kind,omitempty"`
-	Contexts []string `json:"contexts,omitempty"`
+	TaskID     string     `json:"taskId,omitempty"`
+	ThreadKey  string     `json:"threadKey,omitempty"`
+	TaskFamily TaskFamily `json:"taskFamily,omitempty"`
+	SOPID      string     `json:"sopId,omitempty"`
+	Goal       string     `json:"goal,omitempty"`
+	Summary    string     `json:"summary,omitempty"`
+	Kind       string     `json:"kind,omitempty"`
+	Contexts   []string   `json:"contexts,omitempty"`
+	OwnedPaths []string   `json:"ownedPaths,omitempty"`
 }
 
 type SharedFlowContext struct {
@@ -96,6 +102,11 @@ type SliceLocalContext struct {
 	TaskGraphPath         string   `json:"taskGraphPath,omitempty"`
 	TaskContractPath      string   `json:"taskContractPath,omitempty"`
 	PromptCompileInputs   []string `json:"promptCompileInputs,omitempty"`
+	PromptReadOrder       []string `json:"promptReadOrder,omitempty"`
+	PromptSharedInputs    []string `json:"promptSharedInputs,omitempty"`
+	PromptRuntimeInputs   []string `json:"promptRuntimeInputs,omitempty"`
+	PromptCloseoutInputs  []string `json:"promptCloseoutInputs,omitempty"`
+	PromptGuardrails      []string `json:"promptGuardrails,omitempty"`
 	ResumeArtifacts       []string `json:"resumeArtifacts,omitempty"`
 }
 
@@ -188,6 +199,7 @@ type ContinuationProtocol struct {
 	HandoffPath           string             `json:"handoffPath,omitempty"`
 	SessionRegistryPath   string             `json:"sessionRegistryPath,omitempty"`
 	ArtifactDir           string             `json:"artifactDir,omitempty"`
+	FileContracts         []ContinuationFile `json:"fileContracts,omitempty"`
 	PhaseArtifacts        []PhaseArtifactRef `json:"phaseArtifacts,omitempty"`
 	ReadOrder             []string           `json:"readOrder,omitempty"`
 	RequiredArtifacts     []string           `json:"requiredArtifacts,omitempty"`
@@ -196,6 +208,16 @@ type ContinuationProtocol struct {
 	ForbiddenWriteGlobs   []string           `json:"forbiddenWriteGlobs,omitempty"`
 	EntryChecklist        []string           `json:"entryChecklist,omitempty"`
 	ControlPlaneGuards    []string           `json:"controlPlaneGuards,omitempty"`
+}
+
+type ContinuationFile struct {
+	ID       string   `json:"id"`
+	Layer    string   `json:"layer,omitempty"`
+	Role     string   `json:"role,omitempty"`
+	Path     string   `json:"path"`
+	Required bool     `json:"required"`
+	ReadRank int      `json:"readRank,omitempty"`
+	Notes    []string `json:"notes,omitempty"`
 }
 
 type HandoffSection struct {
@@ -256,10 +278,23 @@ type TaskGraph struct {
 	TaskFamily            TaskFamily      `json:"taskFamily,omitempty"`
 	SOPID                 string          `json:"sopId,omitempty"`
 	DirectPass            bool            `json:"directPass,omitempty"`
+	CompileMode           string          `json:"compileMode,omitempty"`
+	DirectPassReason      string          `json:"directPassReason,omitempty"`
 	Phases                []string        `json:"phases,omitempty"`
 	ExecutionTasks        []ExecutionTask `json:"executionTasks,omitempty"`
 	SharedFlowContextPath string          `json:"sharedFlowContextPath,omitempty"`
+	ResumeProtocol        string          `json:"resumeProtocol,omitempty"`
+	ReplanTriggers        []string        `json:"replanTriggers,omitempty"`
+	ProgramOwnedNotes     []string        `json:"programOwnedNotes,omitempty"`
 	Notes                 []string        `json:"notes,omitempty"`
+}
+
+type TaskGraphCompileSpec struct {
+	CompileMode       string   `json:"compileMode,omitempty"`
+	DirectPassReason  string   `json:"directPassReason,omitempty"`
+	ResumeProtocol    string   `json:"resumeProtocol,omitempty"`
+	ReplanTriggers    []string `json:"replanTriggers,omitempty"`
+	ProgramOwnedNotes []string `json:"programOwnedNotes,omitempty"`
 }
 
 type RepeatedEntitySharedSpec struct {
@@ -323,6 +358,7 @@ type CompiledFlow struct {
 	RequirementSpec        *DevelopmentRequirementSpec      `json:"requirementSpec,omitempty"`
 	ArchitectureContract   *DevelopmentArchitectureContract `json:"architectureContract,omitempty"`
 	InterfaceContract      *DevelopmentInterfaceContract    `json:"interfaceContract,omitempty"`
+	TaskGraphCompile       TaskGraphCompileSpec             `json:"taskGraphCompile,omitempty"`
 	ExecutionTasks         []ExecutionTask                  `json:"executionTasks,omitempty"`
 	SharedTaskGroupContext *SharedTaskGroupContext          `json:"sharedTaskGroupContext,omitempty"`
 	SharedFlowContext      SharedFlowContext                `json:"sharedFlowContext"`

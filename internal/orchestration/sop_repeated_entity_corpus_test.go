@@ -44,6 +44,9 @@ func TestCompileRepeatedEntityCorpus(t *testing.T) {
 	if len(flow.SharedFlowContext.CompiledPhases) != 6 {
 		t.Fatalf("expected repeated corpus phases to be compiled, got %+v", flow.SharedFlowContext.CompiledPhases)
 	}
+	if flow.TaskGraphCompile.CompileMode != "entity_fanout_closeout" || flow.TaskGraphCompile.ResumeProtocol != "kh.multi-session-continuation.v1" || len(flow.TaskGraphCompile.ReplanTriggers) == 0 {
+		t.Fatalf("expected repeated corpus task graph skeleton, got %+v", flow.TaskGraphCompile)
+	}
 	if flow.SharedFlowContext.DirectPass {
 		t.Fatalf("expected multi-entity corpus to stay staged, got %+v", flow.SharedFlowContext)
 	}
@@ -71,6 +74,9 @@ func TestCompileRepeatedEntityCorpusSingleEntityUsesDirectPass(t *testing.T) {
 	flow := CompileRepeatedEntityCorpus("/repo", task)
 	if !flow.SharedFlowContext.DirectPass || len(flow.ExecutionTasks) != 1 {
 		t.Fatalf("expected single-entity corpus to use direct pass, got %+v", flow)
+	}
+	if flow.TaskGraphCompile.CompileMode != "single_slice_direct_pass" || flow.TaskGraphCompile.DirectPassReason != "single_entity_roster" {
+		t.Fatalf("expected direct-pass repeated corpus compile skeleton, got %+v", flow.TaskGraphCompile)
 	}
 	if flow.ExecutionTasks[0].BatchLabel != "direct-pass" {
 		t.Fatalf("expected direct-pass batch label, got %+v", flow.ExecutionTasks[0])

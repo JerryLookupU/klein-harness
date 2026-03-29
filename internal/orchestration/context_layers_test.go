@@ -38,14 +38,18 @@ func TestBuildContextLayersAndContinuationProtocol(t *testing.T) {
 		HandoffPath:           "/repo/.harness/artifacts/T-1/handoff.md",
 		SessionRegistryPath:   "/repo/.harness/state/session-registry.json",
 		ArtifactDir:           "/repo/.harness/artifacts/T-1/dispatch-1",
-		PhaseArtifacts:        []PhaseArtifactRef{{PhaseID: "worker_execute", Layer: "slice_local", Role: "slice_context", Path: "/repo/.harness/artifacts/T-1/slice-context.json"}},
-		ReadOrder:             []string{"context-layers.json", "shared-flow-context.json", "slice-context.json"},
-		RequiredArtifacts:     []string{"context-layers.json", "verify-skeleton.json", "handoff.md"},
-		OwnedPaths:            []string{"internal/runtime/**"},
-		AllowedWriteGlobs:     []string{"internal/runtime/**"},
-		ForbiddenWriteGlobs:   []string{".harness/**"},
-		EntryChecklist:        []string{"resume from context-layers.json"},
-		ControlPlaneGuards:    []string{"do not mutate global .harness/state truth ledgers"},
+		FileContracts: []ContinuationFile{
+			{ID: "context_layers", Layer: "runtime_control", Role: "context_layers", Path: "/repo/.harness/artifacts/T-1/context-layers.json", Required: true, ReadRank: 1},
+			{ID: "handoff", Layer: "runtime_control", Role: "handoff", Path: "/repo/.harness/artifacts/T-1/handoff.md", Required: true, ReadRank: 12},
+		},
+		PhaseArtifacts:      []PhaseArtifactRef{{PhaseID: "worker_execute", Layer: "slice_local", Role: "slice_context", Path: "/repo/.harness/artifacts/T-1/slice-context.json"}},
+		ReadOrder:           []string{"context-layers.json", "shared-flow-context.json", "slice-context.json"},
+		RequiredArtifacts:   []string{"context-layers.json", "verify-skeleton.json", "handoff.md"},
+		OwnedPaths:          []string{"internal/runtime/**"},
+		AllowedWriteGlobs:   []string{"internal/runtime/**"},
+		ForbiddenWriteGlobs: []string{".harness/**"},
+		EntryChecklist:      []string{"resume from context-layers.json"},
+		ControlPlaneGuards:  []string{"do not mutate global .harness/state truth ledgers"},
 	})
 	if protocol.SchemaVersion != "kh.multi-session-continuation.v1" || protocol.ProtocolID == "" {
 		t.Fatalf("unexpected continuation protocol: %+v", protocol)
@@ -58,6 +62,9 @@ func TestBuildContextLayersAndContinuationProtocol(t *testing.T) {
 	}
 	if len(protocol.PhaseArtifacts) != 1 || protocol.PhaseArtifacts[0].Path == "" {
 		t.Fatalf("expected continuation protocol to carry phase artifacts, got %+v", protocol)
+	}
+	if len(protocol.FileContracts) != 2 || protocol.FileContracts[0].Path == "" || !protocol.FileContracts[0].Required {
+		t.Fatalf("expected continuation protocol to carry explicit file contracts, got %+v", protocol)
 	}
 	if len(protocol.EntryChecklist) == 0 || len(protocol.ControlPlaneGuards) == 0 {
 		t.Fatalf("expected continuation protocol to carry resume checklist and guardrails, got %+v", protocol)

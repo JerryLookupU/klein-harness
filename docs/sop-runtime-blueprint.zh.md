@@ -46,6 +46,7 @@
 
 - `single_artifact_generation`
 - `review_or_audit`
+- `repair_or_resume`
 
 这样它们也能拿到 requirement / architecture / interface / task-graph / verify / closeout / continuation 合同，而不是掉回 legacy prompt-first 路径。
 
@@ -65,6 +66,8 @@ runtime 内部现在明确区分：
 
 也就是说，程序先选轨道，再编译执行包，worker 不再临场决定整条 flow 的骨架。
 
+这一版里 `repair_or_resume` 已在 classifier 输出阶段直接规范化到 `sop.development_task.v1`，不再依赖后续 worker/registry 补写。这样 request record、task、route input、runtime state、query 面看到的是同一份 family/sop 组合。
+
 ## 上下文四层模型
 
 ### 1. Request Context
@@ -72,6 +75,9 @@ runtime 内部现在明确区分：
 - 用户原始需求
 - submit kind
 - 附加上下文
+- task/thread/family/sop 元信息
+- 当前 request 绑定的 owned paths
+- goal 与 summary 分开持久化，避免下一 session 只能回看自然语言长描述
 
 ### 2. Shared Flow Context
 
@@ -110,6 +116,8 @@ runtime 内部现在明确区分：
 - control/query 面会显式暴露这些 compiled context refs，便于 operator 追踪当前 slice 绑定的是哪一套合同
 - shared flow context 现在会额外带上 `phaseArtifacts[]`，显式记录“哪个 phase 由程序写出了哪个 artifact”
 - slice-local context 现在会额外带上 `promptCompileInputs[]`，显式记录 worker prompt 是由哪些编译结果拼出来的
+- slice-local context 现在还会显式带上 `promptReadOrder[]`、`promptSharedInputs[]`、`promptRuntimeInputs[]`、`promptCloseoutInputs[]`、`promptGuardrails[]`
+- 也就是说，prompt 的首读顺序、共享输入、控制面输入、closeout 输入和执行边界，都由程序先编好，再交给 worker 消费
 
 同时 runtime 真相账本 `runtime.json` 现在会显式跟踪：
 
@@ -152,6 +160,7 @@ runtime 内部现在明确区分：
 - `shared-spec.json`
 - `variable-inputs.json`
 - `task-graph.json`
+- `task-graph.json` 中的 `compileMode` / `directPassReason` / `resumeProtocol` / `replanTriggers` / `programOwnedNotes`
 - `shared-flow-context.json`
 - `slice-context.json`
 - `context-layers.json`
@@ -185,6 +194,7 @@ worker 负责：
 - `architecture-contract.json`
 - `interface-contract.json`
 - `task-graph.json`
+- `task-graph.json` 中的 `compileMode` / `directPassReason` / `resumeProtocol` / `replanTriggers` / `programOwnedNotes`
 - `shared-flow-context.json`
 - `slice-context.json`
 - `context-layers.json`
@@ -228,6 +238,33 @@ prompt 默认引导 worker 先看：
 - `promptCompileInputs: ...`
 
 这样 worker 可以知道当前 handoff 不是自然语言临场发挥，而是程序从哪些 frozen contract 编出来的。
+
+这一版里 `slice-context.json.promptCompileInputs[]` 已明确纳入：
+
+- `context-layers.json`
+- `request-context.json`
+- `runtime-control-context.json`
+- `shared-flow-context.json`
+- `slice-context.json`
+- `accepted-packet-*.json`
+- `task-graph.json`
+- `task-contract.json`
+- `verify-skeleton.json`
+- `closeout-skeleton.json`
+- `handoff-contract.json`
+- `takeover-context.json`
+
+也就是说，worker prompt 的输入集合本身就是程序生成的 contract，而不是运行时临时拼凑的隐式上下文。
+
+除此之外，`slice-context.json` 还会把 prompt 编译合同继续拆成：
+
+- `promptReadOrder[]`
+- `promptSharedInputs[]`
+- `promptRuntimeInputs[]`
+- `promptCloseoutInputs[]`
+- `promptGuardrails[]`
+
+因此 worker prompt 不只是“引用了若干路径”，而是显式基于程序编译出来的读序、输入域和 guardrails 生成。
 
 ## Verify / Closeout 机制
 
@@ -291,6 +328,7 @@ runtime 侧额外增加一条硬闸门：
 - `entryChecklist`
 - `controlPlaneGuards`
 - `phaseArtifacts`
+- `fileContracts[]`
 
 也就是说，下一次 session 拿到 takeover 合同后，不仅知道读哪些文件，也知道当前任务状态、恢复入口、验证应在哪个 cwd 执行，以及必须遵守的控制面边界。
 
@@ -301,6 +339,8 @@ Multi-Session Continuation Protocol v1 在代码中的关键含义现在是：
 - 再读 `task-contract.json` / `verify-skeleton.json` / `closeout-skeleton.json` / `handoff-contract.json`
 - `phaseArtifacts[]` 提供 phase -> artifact 的程序化目录，不需要重新翻 planning trace
 - `promptCompileInputs[]` 说明当前 worker prompt 的编译输入，不允许把 prompt 当成新的真相账本
+- `fileContracts[]` 明确每个 continuation 文件的 layer / role / path / required / readRank，续跑 session 不需要靠路径名猜测语义
+- `task-graph.json` 里的 compile skeleton 字段明确告诉下一 session：当前是 staged compile 还是 single-slice direct pass、为什么这样拆、哪些信号会触发 replan
 
 下一个 session 应只需读取这些固定文件，就能知道：
 
